@@ -215,9 +215,10 @@ export default function App() {
   }
 
   async function handleStart(minutes: number) {
+    const hasOpenArrival = Boolean(openArrival);
     await runAction(async () => {
       await startFocusTimer(minutes);
-    }, `已开始 ${minutes} 分钟专注。`);
+    }, hasOpenArrival ? `已开始 ${minutes} 分钟专注。` : `已自动到岗并开始 ${minutes} 分钟专注。`);
   }
 
   async function handleExport() {
@@ -391,7 +392,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <span>点击到岗后，系统会被动记录开始学习前的拖延。</span>
+                  <span>可以先到岗记录拖延；也可以直接开始番茄钟，系统会同步到岗。</span>
                   <button
                     className="primary-button"
                     type="button"

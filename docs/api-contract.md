@@ -34,7 +34,7 @@ interface StartFocusTimerResult {
 
 - `plannedDurationMinutes` 必须大于 0。
 - 如果当天有打开的 arrival session，应自动绑定。
-- 如果没有 arrival session，仍允许开始计时，但启动延迟无法自动计算。
+- 如果没有打开的 arrival session，系统必须同步创建一条 arrival session，并把本轮 focus session 绑定到它；此时启动延迟按 0 分钟计算。
 
 ### completeFocusTimer
 

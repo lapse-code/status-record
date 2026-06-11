@@ -108,6 +108,24 @@ test("records a completed focus session review", async ({ page }) => {
   await expect(page.getByText("今日学习")).toBeVisible();
 });
 
+test("auto checks in when starting focus without an open arrival", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("自定义分钟").fill("1");
+  await page.getByRole("button", { name: /^开始$/ }).click();
+
+  await expect(page.getByText("已自动到岗并开始 1 分钟专注。")).toBeVisible();
+  await expect(page.getByText("专注中")).toBeVisible();
+
+  await page.getByRole("button", { name: "完成" }).click();
+  await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
+  await page.getByRole("button", { name: "保存复盘" }).click();
+
+  await expect(page.getByText("复盘已保存，已开始记录下一轮启动延迟。")).toBeVisible();
+  await expect(page.getByText("今日启动延迟")).toBeVisible();
+  await expect(page.locator(".stat-card").filter({ hasText: "今日启动延迟" }).getByText("0 分钟")).toBeVisible();
+});
+
 test("starts and ends a break timer after review", async ({ page }) => {
   await page.goto("/");
 

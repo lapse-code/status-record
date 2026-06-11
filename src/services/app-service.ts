@@ -109,12 +109,23 @@ export async function startFocusTimer(
   }
 
   const timestamp = nowIso();
+  const localDate = toLocalDate(new Date(timestamp));
   const openArrival = await getOpenArrival();
+  const arrivalSession =
+    openArrival ??
+    {
+      id: createId("arrival"),
+      local_date: localDate,
+      arrived_at: timestamp,
+      note: "从开始番茄钟自动到岗",
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
   const id = createId("focus");
   const session: FocusSessionRecord = {
     id,
-    arrival_session_id: openArrival?.id,
-    local_date: toLocalDate(new Date(timestamp)),
+    arrival_session_id: arrivalSession.id,
+    local_date: localDate,
     planned_duration_minutes: Math.round(plannedDurationMinutes),
     started_at: timestamp,
     paused_total_seconds: 0,
@@ -124,7 +135,13 @@ export async function startFocusTimer(
     updated_at: timestamp,
   };
 
-  await db.focus_sessions.add(session);
+  await db.transaction("rw", db.arrival_sessions, db.focus_sessions, async () => {
+    if (!openArrival) {
+      await db.arrival_sessions.add(arrivalSession);
+    }
+    await db.focus_sessions.add(session);
+  });
+
   return id;
 }
 
