@@ -86,6 +86,58 @@ const backupFixture = {
   },
 };
 
+const pendingReviewBreakFixture = {
+  format: "status-record.backup",
+  formatVersion: 1,
+  appVersion: "0.1.0",
+  exportedAt: "2026-06-11T00:00:00.000Z",
+  tables: {
+    labels: [],
+    arrival_sessions: [
+      {
+        id: "break-arrival-1",
+        local_date: "2026-06-11",
+        arrived_at: "2026-06-11T00:00:00.000Z",
+        left_at: "2026-06-11T00:30:00.000Z",
+        created_at: "2026-06-11T00:00:00.000Z",
+        updated_at: "2026-06-11T00:30:00.000Z",
+      },
+    ],
+    focus_sessions: [
+      {
+        id: "break-focus-1",
+        arrival_session_id: "break-arrival-1",
+        local_date: "2026-06-11",
+        planned_duration_minutes: 25,
+        actual_duration_minutes: 25,
+        started_at: "2026-06-11T00:00:00.000Z",
+        paused_total_seconds: 0,
+        completed_at: "2026-06-11T00:25:00.000Z",
+        state: "completed",
+        earned_break_minutes: 5,
+        created_at: "2026-06-11T00:00:00.000Z",
+        updated_at: "2026-06-11T00:25:00.000Z",
+      },
+    ],
+    session_reviews: [],
+    session_review_labels: [],
+    break_bank_transactions: [
+      {
+        id: "break-earned-1",
+        focus_session_id: "break-focus-1",
+        local_date: "2026-06-11",
+        type: "earned",
+        minutes: 5,
+        note: "完整完成测试",
+        created_at: "2026-06-11T00:25:00.000Z",
+      },
+    ],
+    break_sessions: [],
+    sleep_logs: [],
+    app_settings: [],
+  },
+};
+
 test("records a completed focus session review", async ({ page }) => {
   await page.goto("/");
 
@@ -126,15 +178,31 @@ test("auto checks in when starting focus without an open arrival", async ({ page
   await expect(page.locator(".stat-card").filter({ hasText: "今日启动延迟" }).getByText("0 分钟")).toBeVisible();
 });
 
-test("starts and ends a break timer after review", async ({ page }) => {
+test("does not earn break balance for early manual completion", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "到岗" }).click();
   await page.getByRole("button", { name: "25 分钟" }).click();
-  await expect(page.getByText("专注中")).toBeVisible();
-
   await page.getByRole("button", { name: "完成" }).click();
+
+  await expect(
+    page.getByText("本轮 0 分钟，获得 0 分钟休息。"),
+  ).toBeVisible();
+  await expect(page.getByRole("radio", { name: "使用休息" })).toBeDisabled();
+});
+
+test("starts and ends a break timer after review", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("导入 JSON 文件").setInputFiles({
+    name: "status-record-break-review.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(pendingReviewBreakFixture)),
+  });
   await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
+  await expect(
+    page.getByText("本轮 25 分钟，获得 5 分钟休息。"),
+  ).toBeVisible();
 
   await page.getByRole("radio", { name: "使用休息" }).check();
   await expect(page.getByLabel("休息倒计时分钟数")).toHaveValue("5");

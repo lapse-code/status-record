@@ -10,6 +10,7 @@ import {
   calculateEarnedBreakMinutes,
   calculateUsedBreakMinutes,
 } from "../domain/break-bank";
+import { calculateCompletedFocusMinutes } from "../domain/focus-session";
 import { createId } from "../domain/id";
 import { nowIso, secondsBetween, toLocalDate } from "../domain/time";
 import type {
@@ -205,7 +206,7 @@ export async function completeFocusTimer(focusSessionId: Id): Promise<void> {
   }
 
   const timestamp = nowIso();
-  const actualDurationMinutes = session.planned_duration_minutes;
+  const actualDurationMinutes = calculateCompletedFocusMinutes(session, timestamp);
   const earnedBreakMinutes = calculateEarnedBreakMinutes(actualDurationMinutes);
 
   await db.transaction("rw", db.focus_sessions, db.break_bank_transactions, async () => {

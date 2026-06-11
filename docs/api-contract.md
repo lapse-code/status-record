@@ -42,7 +42,6 @@ interface StartFocusTimerResult {
 interface CompleteFocusTimerInput {
   focusSessionId: Id;
   completedAt?: ISODateTime;
-  actualDurationMinutes: number;
 }
 
 interface CompleteFocusTimerResult {
@@ -55,6 +54,7 @@ interface CompleteFocusTimerResult {
 规则：
 
 - 完成后创建待复盘状态。
+- `actualDurationMinutes` 由系统按实际有效专注时间计算：`completedAt - startedAt - pausedTotalSeconds - activePauseSeconds`，向下取整到分钟，并且不超过 `plannedDurationMinutes`。
 - `earnedBreakMinutes = floor(actualDurationMinutes / 25) * 5`。
 - 暂停时记录 `current_pause_started_at`，继续时累计到 `paused_total_seconds`，刷新页面后可恢复合理剩余时间。
 
