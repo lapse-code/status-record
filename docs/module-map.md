@@ -11,8 +11,8 @@
 | Labels | 标签管理 | 状态、产物、阻塞都用标签系统 |
 | Sleep Log | 每日睡眠记录 | 每天唯一记录，可修改 |
 | Analytics | 日/周/月统计 | 从原始记录计算学习时长、延迟、标签分布和日点阵 |
-| Settings | 默认时长、标签配置、数据导出 | 第一版只做必要设置 |
-| Storage | 本地持久化、迁移、导出 | 保持逻辑 schema 可迁移到 SQLite |
+| Settings | 默认时长、标签配置、数据导出/导入 | 第一版只做必要设置 |
+| Storage | 本地持久化、迁移、备份导出/导入 | 保持逻辑 schema 可迁移到 SQLite |
 | Notification | 倒计时结束提醒 | Web 通知可选；先保证页面内提醒 |
 
 ## 当前实现状态
@@ -26,8 +26,8 @@
 | Labels | 已实现 | `LabelsView` in `src/App.tsx` |
 | Sleep Log | 已实现 | `SleepPanel` in `src/App.tsx` |
 | Analytics | 已实现 | `src/domain/analytics.ts`、`AnalyticsView` |
-| Settings | 部分实现 | JSON 导出、标签管理 |
-| Storage | 已实现 | `src/storage/db.ts` |
+| Settings | 部分实现 | JSON 导出/导入、标签管理 |
+| Storage | 已实现 | `src/storage/db.ts`、`src/storage/backup.ts` |
 | Notification | 页面内提示已实现 | `notice` 状态 |
 | Demo Data | 已实现 | 右上角“示例数据”按钮、`src/demo-data.ts` |
 
@@ -50,7 +50,7 @@
 | Analytics | 统计复盘 | 日/周/月切换、趋势图、标签分布 |
 | Sleep | 每日睡眠记录 | 15 分钟步进睡眠时长、精力步进评分、历史记录 |
 | Labels | 标签管理 | 新增、重命名、隐藏、排序 |
-| Settings | 偏好设置 | 默认番茄钟、数据导出、清空数据确认 |
+| Settings | 偏好设置 | 默认番茄钟、数据导出/导入、清空数据确认 |
 
 ## 数据流
 
@@ -67,6 +67,7 @@ flowchart TD
   F --> H["Analytics Source Records"]
   I["每日睡眠输入"] --> H
   J["标签管理"] --> F
+  N["JSON 导入"] --> H
   H --> K["日/周/月统计"]
 ```
 

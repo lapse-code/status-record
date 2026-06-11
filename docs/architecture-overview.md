@@ -93,7 +93,7 @@ stateDiagram-v2
 
 - MVP 不依赖网络。
 - 用户数据默认只保存在本机浏览器。
-- 必须提供导出能力，避免用户被锁在浏览器存储里。
+- 必须提供导出和导入能力，避免用户被锁在某个浏览器存储里。
 - 未来如做同步，需要在 schema 中增加 `sync_status`、`updated_at`、`deleted_at` 等字段。
 
 ## 当前运行方式
@@ -102,6 +102,14 @@ stateDiagram-v2
 npm install
 npm run dev
 ```
+
+## 当前部署方式
+
+- 静态托管：GitHub Pages。
+- 部署入口：`.github/workflows/deploy.yml`。
+- 触发方式：推送到 `main` 或手动运行 workflow。
+- 构建输出：Vite `dist`。
+- 线上路径：`https://lapse-code.github.io/status-record/`。
 
 验证命令：
 

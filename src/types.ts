@@ -130,6 +130,32 @@ export interface AppSnapshot {
   appSettings: AppSettingRecord[];
 }
 
+export interface BackupTables {
+  labels: LabelRecord[];
+  arrival_sessions: ArrivalSessionRecord[];
+  focus_sessions: FocusSessionRecord[];
+  session_reviews: SessionReviewRecord[];
+  session_review_labels: SessionReviewLabelRecord[];
+  break_bank_transactions: BreakBankTransactionRecord[];
+  break_sessions: BreakSessionRecord[];
+  sleep_logs: SleepLogRecord[];
+  app_settings: AppSettingRecord[];
+}
+
+export interface AppBackup {
+  format: "status-record.backup";
+  formatVersion: 1;
+  appVersion: string;
+  exportedAt: ISODateTime;
+  tables: BackupTables;
+}
+
+export interface ImportDataResult {
+  sourceFormat: "backup_v1" | "legacy_snapshot";
+  importedRecordCount: number;
+  tableCounts: Record<keyof BackupTables, number>;
+}
+
 export interface SubmitSessionReviewInput {
   focusSessionId: Id;
   statusLabelId: Id;

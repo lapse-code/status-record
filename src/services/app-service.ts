@@ -1,4 +1,9 @@
 import { db, initializeDatabase } from "../storage/db";
+import {
+  countBackupTables,
+  createBackup,
+  parseBackupPayload,
+} from "../storage/backup";
 import { demoDays } from "../demo-data";
 import {
   calculateBreakBalance,
@@ -8,10 +13,12 @@ import {
 import { createId } from "../domain/id";
 import { nowIso, secondsBetween, toLocalDate } from "../domain/time";
 import type {
+  AppBackup,
   AppSnapshot,
   BreakSessionRecord,
   FocusSessionRecord,
   Id,
+  ImportDataResult,
   LabelRecord,
   LabelType,
   SleepLogRecord,
@@ -463,8 +470,53 @@ export async function getBreakBalance(): Promise<number> {
   return calculateBreakBalance(transactions);
 }
 
-export async function exportAllData(): Promise<AppSnapshot> {
-  return loadSnapshot();
+export async function exportAllData(): Promise<AppBackup> {
+  return createBackup(await loadSnapshot());
+}
+
+export async function importAllData(payload: unknown): Promise<ImportDataResult> {
+  await initializeDatabase();
+
+  const { snapshot, sourceFormat } = parseBackupPayload(payload);
+  const tableCounts = countBackupTables(snapshot);
+  const importedRecordCount = Object.values(tableCounts).reduce(
+    (total, count) => total + count,
+    0,
+  );
+
+  await db.transaction(
+    "rw",
+    [
+      db.labels,
+      db.arrival_sessions,
+      db.focus_sessions,
+      db.session_reviews,
+      db.session_review_labels,
+      db.break_bank_transactions,
+      db.break_sessions,
+      db.sleep_logs,
+      db.app_settings,
+    ],
+    async () => {
+      await db.labels.bulkPut(snapshot.labels);
+      await db.arrival_sessions.bulkPut(snapshot.arrivalSessions);
+      await db.focus_sessions.bulkPut(snapshot.focusSessions);
+      await db.session_reviews.bulkPut(snapshot.sessionReviews);
+      await db.session_review_labels.bulkPut(snapshot.sessionReviewLabels);
+      await db.break_bank_transactions.bulkPut(snapshot.breakBankTransactions);
+      await db.break_sessions.bulkPut(snapshot.breakSessions);
+      await importSleepLogs(snapshot.sleepLogs);
+      await db.app_settings.bulkPut(snapshot.appSettings);
+    },
+  );
+
+  await initializeDatabase();
+
+  return {
+    sourceFormat,
+    importedRecordCount,
+    tableCounts,
+  };
 }
 
 export async function seedDemoData(): Promise<{
@@ -682,6 +734,45 @@ async function deleteRecordsWithPrefix<T extends { id: string }>(
   if (keys.length > 0) {
     await table.bulkDelete(keys);
   }
+}
+
+async function importSleepLogs(records: SleepLogRecord[]): Promise<void> {
+  const recordsByDate = new Map<string, SleepLogRecord>();
+
+  for (const record of records) {
+    const existing = recordsByDate.get(record.local_date);
+    if (!existing || isNewerRecord(record, existing)) {
+      recordsByDate.set(record.local_date, record);
+    }
+  }
+
+  for (const incomingRecord of recordsByDate.values()) {
+    const existingRecord = await db.sleep_logs
+      .where("local_date")
+      .equals(incomingRecord.local_date)
+      .first();
+
+    if (existingRecord && existingRecord.id !== incomingRecord.id) {
+      await db.sleep_logs.put({
+        ...incomingRecord,
+        id: existingRecord.id,
+        created_at: existingRecord.created_at,
+      });
+      continue;
+    }
+
+    await db.sleep_logs.put(incomingRecord);
+  }
+}
+
+function isNewerRecord(
+  candidate: { updated_at?: string; created_at?: string },
+  current: { updated_at?: string; created_at?: string },
+): boolean {
+  return (
+    new Date(candidate.updated_at ?? candidate.created_at ?? 0).getTime() >=
+    new Date(current.updated_at ?? current.created_at ?? 0).getTime()
+  );
 }
 
 function toDemoIso(date: string, time: string, addMinutes = 0): string {

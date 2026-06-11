@@ -205,3 +205,36 @@
 
 - 点阵日期可以独立于统计页的日/周/月范围。
 - 没有记录的日期仍显示完整 288 个空白点。
+
+## 2026-06-11: 增加版本化 JSON 备份导入
+
+决定：导出 JSON 改为版本化备份格式 `status-record.backup` version 1，并增加右上角“导入”按钮。导入支持当前备份格式，也兼容早期直接导出的 `AppSnapshot` 结构。
+
+原因：
+
+- 网页部署后，每个用户的数据仍保存在自己的浏览器 IndexedDB 中，必须有可恢复的备份路径。
+- 未来如果增加账号系统，同一份格式可以作为本地数据上传云端的同步包基础。
+- 备份结构使用数据库表名，比 UI 内部 camelCase snapshot 更稳定。
+
+影响：
+
+- 导入采用合并写入：同 `id` 更新，不同 `id` 新增；不会先清空本地数据。
+- 导入前会检查每张表是数组，并检查主键字段。
+- `sleep_logs.local_date` 有唯一约束；如果同一天已有不同 `id` 的睡眠记录，导入时保留本地 id 并写入导入内容。
+- Playwright 已覆盖导入备份后统计页出现导入记录。
+
+## 2026-06-11: 使用 GitHub Pages 部署静态网页应用
+
+决定：第一版线上部署使用 GitHub Pages + GitHub Actions。`main` 分支 push 后，workflow 会安装依赖、运行单元测试、lint、构建 Vite `dist`，再通过 Pages artifact 发布。
+
+原因：
+
+- 当前应用是纯前端本地优先应用，不需要后端服务即可给朋友使用。
+- 仓库已经在 GitHub，GitHub Pages 能减少额外平台账号和部署链路。
+- 构建前跑测试和 lint，可以避免明显坏版本自动上线。
+
+影响：
+
+- Vite 在 `GITHUB_PAGES=true` 时使用 `/status-record/` 作为 `base`，适配仓库 Pages 子路径。
+- 线上地址为 `https://lapse-code.github.io/status-record/`。
+- 线上用户数据仍保存在各自浏览器 IndexedDB；同步仍依赖导出/导入，尚无账号系统。

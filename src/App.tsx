@@ -32,6 +32,7 @@ import {
   Square,
   Tags,
   TimerReset,
+  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -59,6 +60,7 @@ import {
   completeFocusTimer,
   createLabel,
   exportAllData,
+  importAllData,
   loadSnapshot,
   pauseFocusTimer,
   resumeFocusTimer,
@@ -110,6 +112,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const completingRef = useRef<string | null>(null);
   const completingBreakRef = useRef<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
     const nextSnapshot = await loadSnapshot();
@@ -231,6 +234,33 @@ export default function App() {
     setMessage("已导出 JSON 数据。");
   }
 
+  async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setMessage("只能导入 JSON 文件。");
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(await file.text()) as unknown;
+      const result = await importAllData(payload);
+      await refresh();
+      setMessage(
+        `已导入 ${result.importedRecordCount} 条记录。${
+          result.sourceFormat === "legacy_snapshot" ? "旧版导出格式已兼容。" : ""
+        }`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "导入失败。");
+    }
+  }
+
   async function handleSeedDemoData() {
     try {
       const result = await seedDemoData();
@@ -264,6 +294,22 @@ export default function App() {
           <button className="ghost-button" type="button" onClick={handleSeedDemoData}>
             <Plus size={18} />
             示例数据
+          </button>
+          <input
+            ref={importFileInputRef}
+            accept="application/json,.json"
+            aria-label="导入 JSON 文件"
+            className="visually-hidden"
+            type="file"
+            onChange={handleImport}
+          />
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => importFileInputRef.current?.click()}
+          >
+            <Upload size={18} />
+            导入
           </button>
           <button className="ghost-button" type="button" onClick={handleExport}>
             <Download size={18} />

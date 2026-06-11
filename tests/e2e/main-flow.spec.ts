@@ -1,5 +1,91 @@
 import { expect, test } from "@playwright/test";
 
+const backupFixture = {
+  format: "status-record.backup",
+  formatVersion: 1,
+  appVersion: "0.1.0",
+  exportedAt: "2026-06-11T00:00:00.000Z",
+  tables: {
+    labels: [],
+    arrival_sessions: [
+      {
+        id: "import-arrival-1",
+        local_date: "2026-06-11",
+        arrived_at: "2026-06-11T00:00:00.000Z",
+        left_at: "2026-06-11T01:00:00.000Z",
+        created_at: "2026-06-11T00:00:00.000Z",
+        updated_at: "2026-06-11T01:00:00.000Z",
+      },
+    ],
+    focus_sessions: [
+      {
+        id: "import-focus-1",
+        arrival_session_id: "import-arrival-1",
+        local_date: "2026-06-11",
+        planned_duration_minutes: 25,
+        actual_duration_minutes: 25,
+        started_at: "2026-06-11T00:15:00.000Z",
+        paused_total_seconds: 0,
+        completed_at: "2026-06-11T00:40:00.000Z",
+        state: "reviewed",
+        earned_break_minutes: 5,
+        created_at: "2026-06-11T00:15:00.000Z",
+        updated_at: "2026-06-11T00:40:00.000Z",
+      },
+    ],
+    session_reviews: [
+      {
+        id: "import-review-1",
+        focus_session_id: "import-focus-1",
+        status_label_id: "status-completed",
+        attention_switch_count: 1,
+        product_note: "导入备份里的可见产物记录",
+        created_at: "2026-06-11T00:41:00.000Z",
+        updated_at: "2026-06-11T00:41:00.000Z",
+      },
+    ],
+    session_review_labels: [
+      {
+        id: "import-review-label-1",
+        review_id: "import-review-1",
+        label_id: "product-note",
+        label_type: "product",
+        created_at: "2026-06-11T00:41:00.000Z",
+      },
+      {
+        id: "import-review-label-2",
+        review_id: "import-review-1",
+        label_id: "blocker-none",
+        label_type: "blocker",
+        created_at: "2026-06-11T00:41:00.000Z",
+      },
+    ],
+    break_bank_transactions: [
+      {
+        id: "import-break-earned-1",
+        focus_session_id: "import-focus-1",
+        local_date: "2026-06-11",
+        type: "earned",
+        minutes: 5,
+        note: "导入测试",
+        created_at: "2026-06-11T00:40:00.000Z",
+      },
+    ],
+    break_sessions: [],
+    sleep_logs: [
+      {
+        id: "import-sleep-1",
+        local_date: "2026-06-11",
+        sleep_duration_minutes: 450,
+        energy_score: 4,
+        created_at: "2026-06-11T00:00:00.000Z",
+        updated_at: "2026-06-11T00:00:00.000Z",
+      },
+    ],
+    app_settings: [],
+  },
+};
+
 test("records a completed focus session review", async ({ page }) => {
   await page.goto("/");
 
@@ -142,4 +228,23 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("当前只看「太累」相关记录")).toBeVisible();
   await expect(page.getByText("睡眠不足，写文档时注意力维持不住。")).toBeVisible();
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
+});
+
+test("imports a JSON backup into local records", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("导入 JSON 文件").setInputFiles({
+    name: "status-record-import.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backupFixture)),
+  });
+
+  await expect(page.getByText("已导入 7 条记录。")).toBeVisible();
+  await page.getByRole("button", { name: "统计" }).click();
+  await page.getByRole("button", { name: "日" }).click();
+
+  await expect(
+    page.locator(".stat-card").filter({ hasText: "学习时长" }).getByText("25 分钟"),
+  ).toBeVisible();
+  await expect(page.getByText("导入备份里的可见产物记录")).toBeVisible();
 });

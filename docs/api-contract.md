@@ -311,3 +311,53 @@ interface SeedDemoDataResult {
 - 写入 2026-06-01 到 2026-06-10 的 demo 记录。
 - 重复触发时只清理 `demo-` 前缀数据，不删除真实记录。
 - Demo 数据写入当前浏览器 IndexedDB，因此无需后端。
+
+## Backup Service
+
+### exportAllData
+
+```ts
+interface AppBackup {
+  format: "status-record.backup";
+  formatVersion: 1;
+  appVersion: string;
+  exportedAt: ISODateTime;
+  tables: {
+    labels: LabelRecord[];
+    arrival_sessions: ArrivalSessionRecord[];
+    focus_sessions: FocusSessionRecord[];
+    session_reviews: SessionReviewRecord[];
+    session_review_labels: SessionReviewLabelRecord[];
+    break_bank_transactions: BreakBankTransactionRecord[];
+    break_sessions: BreakSessionRecord[];
+    sleep_logs: SleepLogRecord[];
+    app_settings: AppSettingRecord[];
+  };
+}
+```
+
+规则：
+
+- 导出文件使用稳定备份格式，不再直接暴露 UI 内部的 camelCase `AppSnapshot`。
+- `tables` 使用数据库表名，方便未来映射到后端同步或 SQLite。
+- 导出只读本地 IndexedDB，不修改任何数据。
+
+### importAllData
+
+```ts
+interface ImportDataResult {
+  sourceFormat: "backup_v1" | "legacy_snapshot";
+  importedRecordCount: number;
+  tableCounts: Record<string, number>;
+}
+```
+
+规则：
+
+- 导入只接受 JSON 对象。
+- 首选 `format = "status-record.backup"` 且 `formatVersion = 1` 的备份格式。
+- 兼容早期直接导出的 `AppSnapshot` 结构，导入结果中 `sourceFormat = "legacy_snapshot"`。
+- 导入前会检查每张表是数组，并检查主键字段：普通表需要 `id`，`app_settings` 需要 `key`。
+- 导入采用合并写入：同 `id` 更新，不同 `id` 新增；不会先清空本地数据。
+- 导入运行在 Dexie transaction 中；写入失败时应回滚本次导入。
+- `sleep_logs.local_date` 是唯一字段；如果导入文件和本地已有同一天但不同 `id` 的睡眠记录，导入时保留本地 id 并写入导入内容，避免唯一索引冲突。
