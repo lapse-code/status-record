@@ -35,6 +35,11 @@
 - blocker：无、不清楚、太难、太无聊、害怕做差、太累、被打断。
 - product：笔记、代码、文件、录音、PPT、阅读摘录、练习题、其他。
 
+规则：
+
+- `is_active = false` 表示归档。归档标签不会出现在新的复盘选择中，但历史记录仍通过标签 id 参与统计。
+- `deleted_at` 表示软删除。已有历史复盘引用的标签不能删除，只能归档。
+
 ## arrival_sessions
 
 记录用户到岗/学习位置的时间段，用于计算拖延。内部派生字段仍称 `startup_delay`。
@@ -234,15 +239,32 @@
 推荐初始设置：
 
 ```json
-{
-  "defaultFocusMinutes": 25,
-  "breakEarnedPerFocusBlockMinutes": 5,
-  "focusBlockMinutes": 25,
-  "allowBreakCarryOver": true
-}
+[
+  {
+    "key": "timer",
+    "value_json": {
+      "defaultFocusMinutes": 25,
+      "breakEarnedPerFocusBlockMinutes": 5,
+      "focusBlockMinutes": 25,
+      "allowBreakCarryOver": true
+    }
+  },
+  {
+    "key": "timelineColors",
+    "value_json": {
+      "empty": "#f0efed",
+      "startup_delay": "#e05c54",
+      "break": "#63b3ed",
+      "focus": "#2f855a",
+      "blocked": "#d49a24"
+    }
+  }
+]
 ```
 
 说明：`allowBreakCarryOver` 是早期设置字段，当前每日学习累计账本不再读取它；实际产品规则是休息余额和未满 25 分钟进度都不跨天。该字段保留只是为了兼容已写入的本地设置。
+
+说明：`timelineColors` 只影响点阵图和图例展示颜色，不改变标签自身颜色。
 
 ## 可选缓存：daily_rollups
 

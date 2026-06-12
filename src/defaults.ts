@@ -174,4 +174,15 @@ export const defaultSettings: AppSettingRecord[] = [
     }),
     updated_at: nowIso(),
   },
+  {
+    key: "timelineColors",
+    value_json: JSON.stringify({
+      empty: "#f0efed",
+      startup_delay: "#e05c54",
+      break: "#63b3ed",
+      focus: "#2f855a",
+      blocked: "#d49a24",
+    }),
+    updated_at: nowIso(),
+  },
 ];

@@ -578,20 +578,28 @@ test("upserts a sleep log for the selected date", async ({ page }) => {
   await expect(sleepDurationInput).toHaveValue("8:00");
 });
 
-test("creates and hides a custom label", async ({ page }) => {
+test("creates and archives a custom label", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "标签" }).click();
-  await page.getByLabel("类型").selectOption("product");
+  await page.getByRole("button", { name: "设置" }).click();
+  const productSection = page
+    .locator(".label-section")
+    .filter({ has: page.getByRole("heading", { name: "产物" }) });
+
+  await productSection.getByRole("button", { name: "新增" }).click();
   await page.getByLabel("名称").fill("草稿");
-  await page.getByRole("button", { name: "新增" }).click();
+  await page
+    .locator(".label-settings-modal")
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
 
   const labelRow = page
     .locator(".label-row")
-    .filter({ has: page.locator('input[value="草稿"]') });
+    .filter({ hasText: "草稿" });
   await expect(labelRow).toBeVisible();
-  await labelRow.getByRole("button", { name: "隐藏" }).click();
-  await expect(labelRow.getByRole("button", { name: "启用" })).toBeVisible();
+  await labelRow.getByRole("button", { name: "设置 草稿" }).click();
+  await page.getByRole("button", { name: "归档" }).click();
+  await expect(labelRow.getByText("已归档")).toBeVisible();
 });
 
 test("loads demo data into analytics", async ({ page }) => {

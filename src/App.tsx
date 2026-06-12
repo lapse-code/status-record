@@ -26,14 +26,19 @@ import {
   LogOut,
   Moon,
   Pause,
+  Palette,
   Play,
   Plus,
   RotateCcw,
   Save,
+  Settings as SettingsIcon,
   Square,
-  Tags,
   TimerReset,
+  Trash2,
   Upload,
+  X,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -61,6 +66,7 @@ import {
   completeBreakTimer,
   completeFocusTimer,
   createLabel,
+  deleteLabel,
   exportAllData,
   importAllData,
   loadSnapshot,
@@ -71,12 +77,14 @@ import {
   startFocusTimer,
   submitSessionReview,
   updateLabel,
+  updateAppSetting,
   upsertSleepLog,
 } from "./services/app-service";
 import { primeReminderChannel, sendReminder } from "./reminders";
 import type {
   AnalyticsGrain,
   AnalyticsSummary,
+  AppSettingRecord,
   AppSnapshot,
   BreakSessionRecord,
   DayTimelineCell,
@@ -138,6 +146,57 @@ const presetMinutes = [25, 45, 50, 90];
 const defaultSleepDurationMinutes = 7 * 60;
 const maxSleepDurationMinutes = 14 * 60;
 const sleepStepMinutes = 15;
+const timelineColorSettingKey = "timelineColors";
+const defaultTimelineColors: Record<DayTimelineCell["state"], string> = {
+  empty: "#f0efed",
+  startup_delay: "#e05c54",
+  break: "#63b3ed",
+  focus: "#2f855a",
+  blocked: "#d49a24",
+};
+const timelineColorItems: {
+  key: DayTimelineCell["state"];
+  label: string;
+}[] = [
+  { key: "startup_delay", label: "拖延" },
+  { key: "focus", label: "专注" },
+  { key: "blocked", label: "不专注" },
+  { key: "break", label: "休息" },
+  { key: "empty", label: "空白" },
+];
+const labelColorPresets = [
+  "#2f855a",
+  "#e05c54",
+  "#d49a24",
+  "#63b3ed",
+  "#3182ce",
+  "#805ad5",
+  "#c05621",
+  "#718096",
+  "#319795",
+  "#d53f8c",
+];
+const labelSections: {
+  type: LabelType;
+  title: string;
+  description: string;
+}[] = [
+  {
+    type: "session_status",
+    title: "状态",
+    description: "复盘一轮专注后的结果分类。",
+  },
+  {
+    type: "product",
+    title: "产物",
+    description: "这轮实际产出的文件、代码、笔记或材料。",
+  },
+  {
+    type: "blocker",
+    title: "不专注原因",
+    description: "记录导致分心、打断或卡住的原因。",
+  },
+];
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot);
@@ -185,6 +244,14 @@ export default function App() {
     [snapshot.arrivalSessions],
   );
   const currentLocalDate = toLocalDate(now);
+  const timelineColors = useMemo(
+    () => getTimelineColors(snapshot.appSettings),
+    [snapshot.appSettings],
+  );
+  const timelineColorStyle = useMemo(
+    () => getTimelineColorStyle(timelineColors),
+    [timelineColors],
+  );
   const breakLedger = useMemo(
     () =>
       calculateDailyBreakLedger(
@@ -365,7 +432,7 @@ export default function App() {
     { id: "today" as const, label: "今天", icon: Clock },
     { id: "week" as const, label: "周点阵", icon: CalendarDays },
     { id: "analytics" as const, label: "统计", icon: BarChart3 },
-    { id: "labels" as const, label: "标签", icon: Tags },
+    { id: "labels" as const, label: "设置", icon: SettingsIcon },
   ];
   const activeViewCopy =
     activeTab === "today"
@@ -374,14 +441,14 @@ export default function App() {
         ? { eyebrow: "一周点阵", title: "查看一周时间分布" }
       : activeTab === "analytics"
         ? { eyebrow: "统计分析", title: "复盘时间和状态" }
-        : { eyebrow: "标签管理", title: "整理记录分类" };
+        : { eyebrow: "系统设置", title: "整理记录分类" };
 
   if (isLoading) {
     return <div className="app-shell loading">正在载入本地记录...</div>;
   }
 
   return (
-    <div className="app-shell focus-studio-shell">
+    <div className="app-shell focus-studio-shell" style={timelineColorStyle}>
       <input
         ref={importFileInputRef}
         accept="application/json,.json"
@@ -754,7 +821,12 @@ export default function App() {
         ) : null}
 
         {activeTab === "labels" ? (
-          <LabelsView snapshot={snapshot} onChanged={refresh} onMessage={setMessage} />
+          <SettingsView
+            snapshot={snapshot}
+            timelineColors={timelineColors}
+            onChanged={refresh}
+            onMessage={setMessage}
+          />
         ) : null}
       </div>
 
@@ -2070,27 +2142,33 @@ function DistributionLegendContent({
   );
 }
 
-function LabelsView({
+function SettingsView({
   snapshot,
+  timelineColors,
   onChanged,
   onMessage,
 }: {
   snapshot: AppSnapshot;
+  timelineColors: Record<DayTimelineCell["state"], string>;
   onChanged: () => Promise<void>;
   onMessage: (message: string) => void;
 }) {
-  const [labelType, setLabelType] = useState<LabelType>("product");
-  const [labelName, setLabelName] = useState("");
+  const [timelineDraft, setTimelineDraft] = useState(timelineColors);
+  const [editor, setEditor] = useState<LabelEditorState | null>(null);
+  const usageCounts = useMemo(() => getLabelUsageCounts(snapshot), [snapshot]);
 
-  async function handleCreate(event: React.FormEvent) {
+  useEffect(() => {
+    setTimelineDraft(timelineColors);
+  }, [timelineColors]);
+
+  async function handleSaveTimelineColors(event: React.FormEvent) {
     event.preventDefault();
     try {
-      await createLabel(labelType, labelName);
-      setLabelName("");
+      await updateAppSetting(timelineColorSettingKey, normalizeTimelineColors(timelineDraft));
       await onChanged();
-      onMessage("标签已新增。");
+      onMessage("点阵颜色已保存。");
     } catch (error) {
-      onMessage(error instanceof Error ? error.message : "新增标签失败。");
+      onMessage(error instanceof Error ? error.message : "保存颜色失败。");
     }
   }
 
@@ -2099,106 +2177,333 @@ function LabelsView({
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>标签管理</h2>
-            <p>状态、产物、不专注原因都可以扩展；隐藏标签不会影响历史统计。</p>
+            <h2>点阵颜色</h2>
+            <p>调整日点阵和周点阵里的状态颜色。</p>
           </div>
-          <Tags size={22} />
+          <Palette size={22} />
         </div>
 
-        <form className="label-create-form" onSubmit={handleCreate}>
-          <label>
-            类型
-            <select
-              value={labelType}
-              onChange={(event) => setLabelType(event.currentTarget.value as LabelType)}
-            >
-              <option value="session_status">状态</option>
-              <option value="product">产物</option>
-              <option value="blocker">不专注原因</option>
-            </select>
-          </label>
-          <label>
-            名称
-            <input
-              value={labelName}
-              onChange={(event) => setLabelName(event.currentTarget.value)}
-              placeholder="新增标签"
-            />
-          </label>
-          <button className="primary-button" type="submit">
-            <Plus size={18} />
-            新增
+        <form className="timeline-color-form" onSubmit={handleSaveTimelineColors}>
+          <div className="timeline-color-grid">
+            {timelineColorItems.map((item) => {
+              const color = normalizeTimelineColorValue(
+                timelineDraft[item.key],
+                defaultTimelineColors[item.key],
+              );
+              return (
+                <label className="timeline-color-row" key={item.key}>
+                  <span
+                    className={`day-dot ${item.key}`}
+                    style={{ backgroundColor: color }}
+                  />
+                  <strong>{item.label}</strong>
+                  <input
+                    aria-label={`${item.label}颜色`}
+                    type="color"
+                    value={color}
+                    onChange={(event) =>
+                      setTimelineDraft((current) => ({
+                        ...current,
+                        [item.key]: event.currentTarget.value,
+                      }))
+                    }
+                  />
+                  <input
+                    aria-label={`${item.label}颜色值`}
+                    value={timelineDraft[item.key]}
+                    onChange={(event) =>
+                      setTimelineDraft((current) => ({
+                        ...current,
+                        [item.key]: event.currentTarget.value,
+                      }))
+                    }
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <button className="primary-button settings-save-button" type="submit">
+            <Save size={18} />
+            保存颜色
           </button>
         </form>
       </section>
 
-      {(["session_status", "product", "blocker"] as LabelType[]).map((type) => (
-        <section className="panel" key={type}>
-          <h3>{typeLabel(type)}</h3>
+      {labelSections.map((section) => (
+        <section className="panel label-section" key={section.type}>
+          <div className="label-section-heading">
+            <div>
+              <h3>{section.title}</h3>
+              <p>{section.description}</p>
+            </div>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => setEditor({ mode: "create", type: section.type })}
+            >
+              <Plus size={18} />
+              新增
+            </button>
+          </div>
           <div className="label-list">
             {snapshot.labels
-              .filter((label) => label.type === type && !label.deleted_at)
+              .filter((label) => label.type === section.type && !label.deleted_at)
               .sort((a, b) => a.sort_order - b.sort_order)
               .map((label) => (
-                <LabelRow
+                <LabelSummaryRow
                   key={label.id}
                   label={label}
-                  onChanged={onChanged}
-                  onMessage={onMessage}
+                  usageCount={usageCounts.get(label.id) ?? 0}
+                  onSettings={() => setEditor({ mode: "edit", label })}
                 />
               ))}
           </div>
         </section>
       ))}
+
+      {editor ? (
+        <LabelSettingsDialog
+          editor={editor}
+          usageCount={
+            editor.mode === "edit" ? usageCounts.get(editor.label.id) ?? 0 : 0
+          }
+          onClose={() => setEditor(null)}
+          onChanged={onChanged}
+          onMessage={onMessage}
+        />
+      ) : null}
     </main>
   );
 }
 
-function LabelRow({
+type LabelEditorState =
+  | { mode: "create"; type: LabelType }
+  | { mode: "edit"; label: LabelRecord };
+
+function LabelSummaryRow({
   label,
-  onChanged,
-  onMessage,
+  usageCount,
+  onSettings,
 }: {
   label: LabelRecord;
-  onChanged: () => Promise<void>;
-  onMessage: (message: string) => void;
+  usageCount: number;
+  onSettings: () => void;
 }) {
-  const [name, setName] = useState(label.name);
-
-  useEffect(() => {
-    setName(label.name);
-  }, [label.name]);
-
   return (
     <div className={label.is_active ? "label-row" : "label-row inactive"}>
       <span className="label-color" style={{ backgroundColor: label.color }} />
-      <input value={name} onChange={(event) => setName(event.currentTarget.value)} />
+      <span className="label-row-name">{label.name}</span>
+      <span className={label.is_active ? "label-state-badge" : "label-state-badge archived"}>
+        {label.is_active ? "正常" : "已归档"}
+      </span>
+      <span className="label-usage">{usageCount} 条记录</span>
       <button
-        className="secondary-button"
+        aria-label={`设置 ${label.name}`}
+        className="icon-button"
         type="button"
-        onClick={async () => {
-          try {
-            await updateLabel({ labelId: label.id, name });
-            await onChanged();
-            onMessage("标签已保存。");
-          } catch (error) {
-            onMessage(error instanceof Error ? error.message : "保存失败。");
-          }
-        }}
+        onClick={onSettings}
       >
-        <Save size={16} />
-        保存
+        <SettingsIcon size={18} />
       </button>
-      <button
-        className="ghost-button"
-        type="button"
-        onClick={async () => {
-          await updateLabel({ labelId: label.id, isActive: !label.is_active });
-          await onChanged();
-        }}
-      >
-        {label.is_active ? "隐藏" : "启用"}
-      </button>
+    </div>
+  );
+}
+
+function LabelSettingsDialog({
+  editor,
+  usageCount,
+  onClose,
+  onChanged,
+  onMessage,
+}: {
+  editor: LabelEditorState;
+  usageCount: number;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+  onMessage: (message: string) => void;
+}) {
+  const isEditing = editor.mode === "edit";
+  const sourceLabel = isEditing ? editor.label : null;
+  const labelType = editor.mode === "edit" ? editor.label.type : editor.type;
+  const [name, setName] = useState(sourceLabel?.name ?? "");
+  const [color, setColor] = useState(sourceLabel?.color ?? defaultLabelColor(labelType));
+
+  useEffect(() => {
+    setName(sourceLabel?.name ?? "");
+    setColor(sourceLabel?.color ?? defaultLabelColor(labelType));
+  }, [sourceLabel, labelType]);
+
+  async function handleSave(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      if (isEditing && sourceLabel) {
+        await updateLabel({
+          labelId: sourceLabel.id,
+          name,
+          color,
+        });
+        onMessage("标签设置已保存。");
+      } else {
+        await createLabel(labelType, name, color);
+        onMessage("标签已新增。");
+      }
+      await onChanged();
+      onClose();
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "保存失败。");
+    }
+  }
+
+  async function handleArchiveToggle() {
+    if (!sourceLabel) {
+      return;
+    }
+
+    try {
+      await updateLabel({
+        labelId: sourceLabel.id,
+        isActive: !sourceLabel.is_active,
+      });
+      await onChanged();
+      onClose();
+      onMessage(sourceLabel.is_active ? "标签已归档。" : "标签已解除归档。");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "操作失败。");
+    }
+  }
+
+  async function handleDelete() {
+    if (!sourceLabel) {
+      return;
+    }
+
+    if (!window.confirm(`确定删除「${sourceLabel.name}」吗？`)) {
+      return;
+    }
+
+    try {
+      await deleteLabel(sourceLabel.id);
+      await onChanged();
+      onClose();
+      onMessage("标签已删除。");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "删除失败。");
+    }
+  }
+
+  const normalizedColor = normalizeTimelineColorValue(
+    color,
+    defaultLabelColor(labelType),
+  );
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="label-settings-modal" onSubmit={handleSave}>
+        <div className="panel-heading">
+          <div>
+            <h2>{isEditing ? "标签设置" : `新增${typeLabel(labelType)}标签`}</h2>
+            <p>{typeLabel(labelType)}</p>
+          </div>
+          <button
+            aria-label="关闭标签设置"
+            className="icon-button"
+            type="button"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <label>
+          名称
+          <input
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+        </label>
+
+        <label>
+          颜色
+          <div className="label-color-editor">
+            <span
+              className="label-color-preview"
+              style={{ backgroundColor: normalizedColor }}
+            />
+            <input
+              aria-label="标签颜色"
+              type="color"
+              value={normalizedColor}
+              onChange={(event) => setColor(event.currentTarget.value)}
+            />
+            <input
+              aria-label="标签颜色值"
+              value={color}
+              onChange={(event) => setColor(event.currentTarget.value)}
+            />
+          </div>
+        </label>
+
+        <div className="color-swatch-grid" aria-label="颜色预设">
+          {labelColorPresets.map((preset) => (
+            <button
+              aria-label={`使用颜色 ${preset}`}
+              className={normalizedColor === preset ? "color-swatch selected" : "color-swatch"}
+              key={preset}
+              style={{ backgroundColor: preset }}
+              type="button"
+              onClick={() => setColor(preset)}
+            />
+          ))}
+        </div>
+
+        {isEditing ? (
+          <div className="label-settings-meta">
+            <span className={sourceLabel?.is_active ? "label-state-badge" : "label-state-badge archived"}>
+              {sourceLabel?.is_active ? "正常" : "已归档"}
+            </span>
+            <span>{usageCount} 条历史记录</span>
+          </div>
+        ) : null}
+
+        <div className="label-settings-actions">
+          <button className="primary-button" type="submit">
+            <Save size={18} />
+            保存
+          </button>
+          {sourceLabel ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={handleArchiveToggle}
+            >
+              {sourceLabel.is_active ? (
+                <>
+                  <Archive size={18} />
+                  归档
+                </>
+              ) : (
+                <>
+                  <ArchiveRestore size={18} />
+                  解除归档
+                </>
+              )}
+            </button>
+          ) : null}
+          {sourceLabel ? (
+            <button
+              className="danger-button"
+              disabled={usageCount > 0}
+              title={usageCount > 0 ? "已有历史记录的标签只能归档" : undefined}
+              type="button"
+              onClick={handleDelete}
+            >
+              <Trash2 size={18} />
+              删除
+            </button>
+          ) : null}
+        </div>
+      </form>
     </div>
   );
 }
@@ -2409,6 +2714,98 @@ function buildCountData(counts: Record<Id, number>, labels: LabelRecord[]) {
       };
     })
     .sort((a, b) => b.value - a.value);
+}
+
+function getTimelineColors(
+  settings: AppSettingRecord[],
+): Record<DayTimelineCell["state"], string> {
+  const setting = settings.find((item) => item.key === timelineColorSettingKey);
+  if (!setting) {
+    return defaultTimelineColors;
+  }
+
+  try {
+    return normalizeTimelineColors(JSON.parse(setting.value_json));
+  } catch {
+    return defaultTimelineColors;
+  }
+}
+
+function normalizeTimelineColors(
+  value: unknown,
+): Record<DayTimelineCell["state"], string> {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    empty: normalizeTimelineColorValue(source.empty, defaultTimelineColors.empty),
+    startup_delay: normalizeTimelineColorValue(
+      source.startup_delay,
+      defaultTimelineColors.startup_delay,
+    ),
+    break: normalizeTimelineColorValue(source.break, defaultTimelineColors.break),
+    focus: normalizeTimelineColorValue(source.focus, defaultTimelineColors.focus),
+    blocked: normalizeTimelineColorValue(source.blocked, defaultTimelineColors.blocked),
+  };
+}
+
+function normalizeTimelineColorValue(value: unknown, fallbackColor: string): string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim())
+    ? value.trim().toLowerCase()
+    : fallbackColor;
+}
+
+function getTimelineColorStyle(
+  colors: Record<DayTimelineCell["state"], string>,
+) {
+  return {
+    "--timeline-color-empty": colors.empty,
+    "--timeline-color-startup-delay": colors.startup_delay,
+    "--timeline-color-break": colors.break,
+    "--timeline-color-focus": colors.focus,
+    "--timeline-color-blocked": colors.blocked,
+  } as React.CSSProperties;
+}
+
+function getLabelUsageCounts(snapshot: AppSnapshot): Map<Id, number> {
+  const counts = new Map<Id, number>();
+  const activeReviewIds = new Set(
+    snapshot.sessionReviews
+      .filter((review) => !review.deleted_at)
+      .map((review) => review.id),
+  );
+
+  for (const review of snapshot.sessionReviews) {
+    if (!review.deleted_at) {
+      counts.set(
+        review.status_label_id,
+        (counts.get(review.status_label_id) ?? 0) + 1,
+      );
+    }
+  }
+
+  for (const relation of snapshot.sessionReviewLabels) {
+    if (activeReviewIds.has(relation.review_id)) {
+      counts.set(relation.label_id, (counts.get(relation.label_id) ?? 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
+function defaultLabelColor(type: LabelType): string {
+  if (type === "session_status") {
+    return "#2f855a";
+  }
+
+  if (type === "product") {
+    return "#3182ce";
+  }
+
+  return "#d49a24";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function typeLabel(type: LabelType): string {

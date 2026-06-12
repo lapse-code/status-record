@@ -574,6 +574,7 @@ export async function upsertSleepLog(input: {
 export async function createLabel(
   type: LabelType,
   name: string,
+  color = "#4a5568",
 ): Promise<void> {
   const trimmedName = name.trim();
   if (!trimmedName) {
@@ -587,7 +588,7 @@ export async function createLabel(
     id: createId(`label-${type}`),
     type,
     name: trimmedName,
-    color: "#4a5568",
+    color: normalizeHexColor(color, "#4a5568"),
     is_default: false,
     is_active: true,
     sort_order: maxSortOrder + 10,
@@ -601,6 +602,7 @@ export async function createLabel(
 export async function updateLabel(input: {
   labelId: Id;
   name?: string;
+  color?: string;
   isActive?: boolean;
 }): Promise<void> {
   const updates: Partial<LabelRecord> = {
@@ -615,11 +617,53 @@ export async function updateLabel(input: {
     updates.name = trimmedName;
   }
 
+  if (typeof input.color === "string") {
+    updates.color = normalizeHexColor(input.color, "#4a5568");
+  }
+
   if (typeof input.isActive === "boolean") {
     updates.is_active = input.isActive;
   }
 
   await db.labels.update(input.labelId, updates);
+}
+
+export async function deleteLabel(labelId: Id): Promise<void> {
+  const label = await db.labels.get(labelId);
+  if (!label || label.deleted_at) {
+    throw new Error("标签不存在。");
+  }
+
+  const [statusUsageCount, relationUsageCount] = await Promise.all([
+    db.session_reviews
+      .where("status_label_id")
+      .equals(labelId)
+      .filter((review) => !review.deleted_at)
+      .count(),
+    db.session_review_labels.where("label_id").equals(labelId).count(),
+  ]);
+
+  if (statusUsageCount + relationUsageCount > 0) {
+    throw new Error("已有历史记录的标签不能删除，请改为归档。");
+  }
+
+  const timestamp = nowIso();
+  await db.labels.update(labelId, {
+    is_active: false,
+    updated_at: timestamp,
+    deleted_at: timestamp,
+  });
+}
+
+export async function updateAppSetting(
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await db.app_settings.put({
+    key,
+    value_json: JSON.stringify(value),
+    updated_at: nowIso(),
+  });
 }
 
 export async function getBreakBalance(localDate = toLocalDate()): Promise<number> {
@@ -847,6 +891,11 @@ export async function seedDemoData(): Promise<{
     focusCount,
     totalFocusMinutes,
   };
+}
+
+function normalizeHexColor(value: string, fallbackColor: string): string {
+  const color = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallbackColor;
 }
 
 async function getOpenArrival() {

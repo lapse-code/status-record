@@ -8,12 +8,12 @@
 | Arrival | 到岗记录、离开记录、拖延计算 | 到岗到第一轮专注开始之间是拖延 |
 | Review | 每轮结束复盘表单 | 状态、注意力切换次数、产物、不专注原因、休息选择 |
 | Break Bank | 今日休息余额累计、休息倒计时和使用 | 今日已完成番茄钟真实分钟每累计满 25 分钟增加 5 分钟；余额和进度不跨天；使用休息后进入倒计时；休息结束且余额未用完时可继续休息 |
-| Labels | 标签管理 | 状态、产物、不专注原因都用标签系统 |
+| Labels | 标签数据模型 | 状态、产物、不专注原因都用标签系统；归档标签不再进入新复盘选择 |
 | Sleep Log | 每日睡眠记录 | 每天唯一记录，可修改 |
 | Analytics | 日/周/月统计 | 从原始记录计算专注时长、拖延、标签分布和日点阵；点阵优先使用 `focus_segments` |
 | Week Timeline | 一周日点阵 | 复用日点阵算法，按周一到周日展示 7 天 |
 | Time Zone | 记录发生时区 | 新记录保存当前设备 IANA 时区；旧数据缺失时区按 `Asia/Tokyo` 兼容；历史点阵按记录时区绘制 |
-| Settings | 默认时长、标签配置、数据导出/导入 | 第一版只做必要设置；数据操作入口在侧栏和主内容备用区域中复用 |
+| Settings | 点阵颜色、标签配置、数据导出/导入 | 点阵状态颜色可配置；标签通过齿轮弹窗改名、改色、归档或删除；数据操作入口在侧栏和主内容备用区域中复用 |
 | Storage | 本地持久化、迁移、备份导出/导入 | 保持逻辑 schema 可迁移到 SQLite |
 | Notification | 倒计时结束提醒 | 番茄钟结束和休息结束触发浏览器通知、默认提示音和页面内提示 |
 
@@ -25,11 +25,11 @@
 | Arrival | 已实现 | `src/services/app-service.ts` |
 | Review | 已实现 | `ReviewModal` in `src/App.tsx` |
 | Break Bank | 已实现 | `src/domain/break-bank.ts`、`break_bank_transactions`、`break_sessions` |
-| Labels | 已实现 | `LabelsView` in `src/App.tsx` |
+| Labels | 已实现 | `SettingsView` in `src/App.tsx` |
 | Sleep Log | 已实现 | `SleepPanel` in `src/App.tsx` |
 | Analytics | 已实现 | `src/domain/analytics.ts`、`AnalyticsView` |
 | Week Timeline | 已实现 | `WeekTimelineView` in `src/App.tsx` |
-| Settings | 部分实现 | JSON 导出/导入、标签管理 |
+| Settings | 已实现基础设置 | 点阵颜色、JSON 导出/导入、标签管理 |
 | Storage | 已实现 | `src/storage/db.ts`、`src/storage/backup.ts` |
 | Notification | 已实现 | `src/reminders.ts`、`notice` 状态 |
 | Demo Data | 已实现 | 全局“示例数据”操作、`src/demo-data.ts` |
@@ -38,7 +38,7 @@
 
 - “日点阵”按 5 分钟一个点展示一天；每个点由内部 5 个 1 分钟状态的多数决定颜色。宽容器每列 30 分钟、窄容器每列 1 小时，避免统计页出现大片空白或轴文字过密。
 - “周点阵”按周一到周日纵向展示 7 个日点阵，支持上一周、下一周、本周和日期跳转。
-- 点阵颜色：红色为拖延，天蓝色为休息，绿色为专注，黄色为不专注。
+- 点阵颜色默认值：红色为拖延，天蓝色为休息，绿色为专注，黄色为不专注，浅灰色为空白；用户可在设置页修改这些颜色。
 - 点阵会实时纳入当前状态：到岗未专注显示拖延，运行中专注显示专注，运行中休息显示休息，暂停显示拖延，完成未复盘先显示专注，取消后撤销本轮专注颜色。
 - 点阵按记录发生时区定位到本地分钟；用户切换国家或电脑时区后，历史点阵不会被重新排布。
 - 点阵支持前一天、后一天、今天和日期输入，因此可以持续查看昨天、前天或任意历史日期。
@@ -56,8 +56,7 @@
 | Review Modal | 倒计时结束后的复盘 | 状态选择、数字输入、标签选择、文本框 |
 | Analytics | 统计复盘 | 日/周/月切换、趋势图、标签分布 |
 | Sleep | 每日睡眠记录 | 15 分钟步进睡眠时长、精力步进评分、历史记录 |
-| Labels | 标签管理 | 新增、重命名、隐藏、排序 |
-| Settings | 偏好设置 | 默认番茄钟、数据导出/导入、清空数据确认 |
+| Settings | 系统设置 | 点阵颜色、标签新增、齿轮设置、重命名、改色、归档、解除归档、删除 |
 
 ## 当前主界面布局
 
@@ -84,7 +83,7 @@ flowchart TD
   L --> M["下一轮拖延记录"]
   F --> H["Analytics Source Records"]
   I["每日睡眠输入"] --> H
-  J["标签管理"] --> F
+  J["设置页/标签管理"] --> F
   N["JSON 导入"] --> H
   O["记录时区"] --> H
   H --> K["日/周/月统计"]
@@ -116,4 +115,4 @@ flowchart TD
   - `session_status`
   - `product`
   - `blocker`
-- 默认标签可保护，但用户应能新增自定义标签。
+- 默认标签和自定义标签都可在设置页改名、改色、归档；没有历史记录的标签可软删除，已有历史记录的标签只能归档。

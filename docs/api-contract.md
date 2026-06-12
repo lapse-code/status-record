@@ -261,8 +261,45 @@ interface UpdateLabelInput {
 
 规则：
 
-- 默认标签可以改名和隐藏，但不建议硬删除。
-- 自定义标签可以删除；删除前要处理历史记录引用，建议软删除。
+- `isActive = false` 表示归档；归档标签不再出现在新的复盘选择中，但历史统计继续按原标签计算。
+- 默认标签和自定义标签都可以改名、改颜色、归档和解除归档。
+- 删除标签使用软删除；删除前必须检查历史记录引用。
+- 已被 `session_reviews.status_label_id` 或 `session_review_labels.label_id` 引用的标签不能删除，只能归档。
+
+### deleteLabel
+
+```ts
+interface DeleteLabelInput {
+  labelId: Id;
+}
+```
+
+规则：
+
+- 删除前检查该标签是否被任意有效复盘记录引用。
+- 未被历史记录引用时，写入 `deleted_at` 并设置 `is_active = false`。
+- 已有历史记录时返回错误，要求用户改用归档。
+
+## Settings Service
+
+### updateAppSetting
+
+```ts
+interface UpdateAppSettingInput {
+  key: string;
+  value: unknown;
+}
+```
+
+当前设置项：
+
+- `timer`：默认番茄钟和休息规则兼容设置。
+- `timelineColors`：点阵颜色设置，键为 `empty`、`startup_delay`、`break`、`focus`、`blocked`，值为 `#rrggbb`。
+
+规则：
+
+- 设置保存到 `app_settings.value_json`，导出和导入必须包含该表。
+- 点阵颜色只影响日点阵、周点阵和图例，不改变标签本身的统计颜色。
 
 ## Analytics Service
 
