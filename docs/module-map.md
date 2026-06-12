@@ -11,6 +11,7 @@
 | Labels | 标签管理 | 状态、产物、阻塞都用标签系统 |
 | Sleep Log | 每日睡眠记录 | 每天唯一记录，可修改 |
 | Analytics | 日/周/月统计 | 从原始记录计算学习时长、延迟、标签分布和日点阵 |
+| Week Timeline | 一周日点阵 | 复用日点阵算法，按周一到周日展示 7 天 |
 | Settings | 默认时长、标签配置、数据导出/导入 | 第一版只做必要设置 |
 | Storage | 本地持久化、迁移、备份导出/导入 | 保持逻辑 schema 可迁移到 SQLite |
 | Notification | 倒计时结束提醒 | 番茄钟结束和休息结束触发浏览器通知、默认提示音和页面内提示 |
@@ -26,6 +27,7 @@
 | Labels | 已实现 | `LabelsView` in `src/App.tsx` |
 | Sleep Log | 已实现 | `SleepPanel` in `src/App.tsx` |
 | Analytics | 已实现 | `src/domain/analytics.ts`、`AnalyticsView` |
+| Week Timeline | 已实现 | `WeekTimelineView` in `src/App.tsx` |
 | Settings | 部分实现 | JSON 导出/导入、标签管理 |
 | Storage | 已实现 | `src/storage/db.ts`、`src/storage/backup.ts` |
 | Notification | 已实现 | `src/reminders.ts`、`notice` 状态 |
@@ -34,6 +36,7 @@
 ## 当前统计交互
 
 - “日点阵”按 5 分钟一个点展示一天；每个点由内部 5 个 1 分钟状态的多数决定颜色。宽容器每列 30 分钟、窄容器每列 1 小时，避免统计页出现大片空白或轴文字过密。
+- “周点阵”按周一到周日纵向展示 7 个日点阵，支持上一周、下一周、本周和日期跳转。
 - 点阵颜色：红色为启动延迟，绿色为正常学习，黄色为有阻塞或被打断的学习。
 - 点阵支持前一天、后一天、今天和日期输入，因此可以持续查看昨天、前天或任意历史日期。
 - “状态分布”“产物标签”“阻塞原因”饼图扇区和右侧标签列表都可点击。
@@ -46,6 +49,7 @@
 | 页面 | 目的 | 主要组件 |
 | --- | --- | --- |
 | Today | 日常使用主界面 | 到岗按钮、计时器、休息余额、今日摘要 |
+| Week Timeline | 查看一周时间分布 | 7 天日点阵、上一周/下一周/本周、日期跳转 |
 | Review Modal | 倒计时结束后的复盘 | 状态选择、数字输入、标签选择、文本框 |
 | Analytics | 统计复盘 | 日/周/月切换、趋势图、标签分布 |
 | Sleep | 每日睡眠记录 | 15 分钟步进睡眠时长、精力步进评分、历史记录 |

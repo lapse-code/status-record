@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import {
   BarChart3,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -85,7 +86,7 @@ import type {
   SubmitSessionReviewInput,
 } from "./types";
 
-type TabId = "today" | "analytics" | "labels";
+type TabId = "today" | "week" | "analytics" | "labels";
 type DetailFilter = { type: LabelType; id: Id } | null;
 
 const emptySnapshot: AppSnapshot = {
@@ -318,12 +319,15 @@ export default function App() {
 
   const navigation = [
     { id: "today" as const, label: "今天", icon: Clock },
+    { id: "week" as const, label: "周点阵", icon: CalendarDays },
     { id: "analytics" as const, label: "统计", icon: BarChart3 },
     { id: "labels" as const, label: "标签", icon: Tags },
   ];
   const activeViewCopy =
     activeTab === "today"
       ? { eyebrow: "今日工作台", title: "继续保持专注" }
+      : activeTab === "week"
+        ? { eyebrow: "一周点阵", title: "查看一周时间分布" }
       : activeTab === "analytics"
         ? { eyebrow: "统计分析", title: "复盘时间和状态" }
         : { eyebrow: "标签管理", title: "整理记录分类" };
@@ -684,6 +688,8 @@ export default function App() {
         ) : null}
 
         {activeTab === "analytics" ? <AnalyticsView snapshot={snapshot} /> : null}
+
+        {activeTab === "week" ? <WeekTimelineView snapshot={snapshot} /> : null}
 
         {activeTab === "labels" ? (
           <LabelsView snapshot={snapshot} onChanged={refresh} onMessage={setMessage} />
@@ -1314,6 +1320,117 @@ function BreakCompletionModal({
   );
 }
 
+function WeekTimelineView({ snapshot }: { snapshot: AppSnapshot }) {
+  const [anchorDate, setAnchorDate] = useState(toLocalDate());
+  const weekDates = useMemo(() => getWeekDates(anchorDate), [anchorDate]);
+  const weekStart = weekDates[0] ?? anchorDate;
+  const weekEnd = weekDates[6] ?? anchorDate;
+  const dayTimelines = useMemo(
+    () =>
+      weekDates.map((date) => ({
+        date,
+        cells: buildDayTimeline(snapshot, date),
+      })),
+    [snapshot, weekDates],
+  );
+
+  return (
+    <main className="week-timeline-layout">
+      <section className="panel week-timeline-header">
+        <div className="panel-heading">
+          <div>
+            <h2>周点阵</h2>
+            <p>
+              {weekStart} 到 {weekEnd}
+            </p>
+          </div>
+          <div className="timeline-controls" aria-label="周点阵日期控制">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setAnchorDate((date) => shiftLocalDate(date, -7))}
+            >
+              <ChevronLeft size={16} />
+              上一周
+            </button>
+            <label>
+              日期
+              <input
+                aria-label="周点阵日期"
+                type="date"
+                value={anchorDate}
+                onChange={(event) => {
+                  const nextDate = event.currentTarget.value;
+                  if (isLocalDateString(nextDate)) {
+                    setAnchorDate(nextDate);
+                  }
+                }}
+              />
+            </label>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setAnchorDate((date) => shiftLocalDate(date, 7))}
+            >
+              下一周
+              <ChevronRight size={16} />
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setAnchorDate(toLocalDate())}
+            >
+              本周
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="week-timeline-list" aria-label="一周日点阵">
+        {dayTimelines.map((timeline) => (
+          <WeekTimelineDay key={timeline.date} {...timeline} />
+        ))}
+      </section>
+    </main>
+  );
+}
+
+function WeekTimelineDay({
+  cells,
+  date,
+}: {
+  cells: DayTimelineCell[];
+  date: string;
+}) {
+  const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
+  const { columns, mode } = getTimelineLayout(cells, panelWidth, 720);
+  const counts = countTimelineCells(cells);
+  const weekday = formatWeekday(date);
+
+  return (
+    <article
+      ref={panelRef}
+      className={`week-timeline-day day-dot-panel ${mode}`}
+      style={{ "--timeline-columns": columns.length } as React.CSSProperties}
+    >
+      <div className="week-day-heading">
+        <div>
+          <h3>
+            {date}
+            <span>{weekday}</span>
+          </h3>
+          <p>
+            每点 5 分钟 · 每列
+            {mode === "half-hour" ? " 30 分钟" : " 1 小时"}
+          </p>
+        </div>
+        <TimelineLegend counts={counts} />
+      </div>
+      <TimelineMatrix columns={columns} date={date} />
+    </article>
+  );
+}
+
 function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
   const [grain, setGrain] = useState<AnalyticsGrain>("week");
   const [detailFilter, setDetailFilter] = useState<DetailFilter>(null);
@@ -1587,23 +1704,7 @@ function DayTimelinePanel({
   onToday: () => void;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
-  const slotsPerColumn = panelWidth >= 820 ? 6 : 12;
-  const mode = slotsPerColumn === 6 ? "half-hour" : "hour";
-  const columns = Array.from(
-    { length: Math.ceil(cells.length / slotsPerColumn) },
-    (_, columnIndex) =>
-      cells.slice(
-        columnIndex * slotsPerColumn,
-        columnIndex * slotsPerColumn + slotsPerColumn,
-      ),
-  );
-  const counts = cells.reduce(
-    (result, cell) => {
-      result[cell.state] += 1;
-      return result;
-    },
-    { empty: 0, startup_delay: 0, focus: 0, blocked: 0 },
-  );
+  const { columns, counts, mode } = getTimelineLayout(cells, panelWidth);
 
   return (
     <section
@@ -1645,44 +1746,98 @@ function DayTimelinePanel({
               今天
             </button>
           </div>
-          <div className="dot-legend" aria-label="日点阵图例">
-            <span>
-              <i className="day-dot startup_delay" />
-              延迟 {counts.startup_delay}
-            </span>
-            <span>
-              <i className="day-dot focus" />
-              学习 {counts.focus}
-            </span>
-            <span>
-              <i className="day-dot blocked" />
-              阻塞 {counts.blocked}
-            </span>
-          </div>
+          <TimelineLegend counts={counts} />
         </div>
       </div>
-      <div className="day-dot-scroll">
-        <div className="day-dot-grid" aria-label={`${date} 日点阵`}>
-          {columns.map((column, columnIndex) => (
-            <div className="day-dot-column" key={`${date}-${columnIndex}`}>
-              {column.map((cell) => (
-                <span
-                  key={cell.id}
-                  aria-label={`${cell.timeLabel} ${timelineCellLabel(cell.state)}`}
-                  className={`day-dot ${cell.state}`}
-                  title={cell.title}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="hour-axis" aria-hidden="true">
-          {Array.from({ length: 24 }, (_, hour) => (
-            <span key={hour}>{String(hour).padStart(2, "0")}</span>
-          ))}
-        </div>
-      </div>
+      <TimelineMatrix columns={columns} date={date} />
     </section>
+  );
+}
+
+function TimelineLegend({
+  counts,
+}: {
+  counts: Record<DayTimelineCell["state"], number>;
+}) {
+  return (
+    <div className="dot-legend" aria-label="日点阵图例">
+      <span>
+        <i className="day-dot startup_delay" />
+        延迟 {counts.startup_delay}
+      </span>
+      <span>
+        <i className="day-dot focus" />
+        学习 {counts.focus}
+      </span>
+      <span>
+        <i className="day-dot blocked" />
+        阻塞 {counts.blocked}
+      </span>
+    </div>
+  );
+}
+
+function TimelineMatrix({
+  columns,
+  date,
+}: {
+  columns: DayTimelineCell[][];
+  date: string;
+}) {
+  return (
+    <div className="day-dot-scroll">
+      <div className="day-dot-grid" aria-label={`${date} 日点阵`}>
+        {columns.map((column, columnIndex) => (
+          <div className="day-dot-column" key={`${date}-${columnIndex}`}>
+            {column.map((cell) => (
+              <span
+                key={cell.id}
+                aria-label={`${cell.timeLabel} ${timelineCellLabel(cell.state)}`}
+                className={`day-dot ${cell.state}`}
+                title={cell.title}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="hour-axis" aria-hidden="true">
+        {Array.from({ length: 24 }, (_, hour) => (
+          <span key={hour}>{String(hour).padStart(2, "0")}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getTimelineLayout(
+  cells: DayTimelineCell[],
+  panelWidth: number,
+  halfHourThreshold = 820,
+) {
+  const slotsPerColumn = panelWidth >= halfHourThreshold ? 6 : 12;
+  const mode = slotsPerColumn === 6 ? "half-hour" : "hour";
+
+  return {
+    columns: Array.from(
+      { length: Math.ceil(cells.length / slotsPerColumn) },
+      (_, columnIndex) =>
+        cells.slice(
+          columnIndex * slotsPerColumn,
+          columnIndex * slotsPerColumn + slotsPerColumn,
+        ),
+    ),
+    counts: countTimelineCells(cells),
+    mode,
+  };
+}
+
+function countTimelineCells(cells: DayTimelineCell[]) {
+  return cells.reduce<Record<DayTimelineCell["state"], number>>(
+    (result, cell) => {
+      result[cell.state] += 1;
+      return result;
+    },
+    { empty: 0, startup_delay: 0, focus: 0, blocked: 0 },
   );
 }
 
@@ -2207,6 +2362,24 @@ function shiftLocalDate(date: string, dayDelta: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setDate(value.getDate() + dayDelta);
   return toLocalDate(value);
+}
+
+function getWeekDates(anchorDate: string): string[] {
+  const start = getWeekStartDate(anchorDate);
+  return Array.from({ length: 7 }, (_, index) => shiftLocalDate(start, index));
+}
+
+function getWeekStartDate(anchorDate: string): string {
+  const value = new Date(`${anchorDate}T00:00:00`);
+  const daysSinceMonday = (value.getDay() + 6) % 7;
+  value.setDate(value.getDate() - daysSinceMonday);
+  return toLocalDate(value);
+}
+
+function formatWeekday(localDate: string): string {
+  return new Date(`${localDate}T00:00:00`).toLocaleDateString("zh-CN", {
+    weekday: "short",
+  });
 }
 
 function buildCountData(counts: Record<Id, number>, labels: LabelRecord[]) {

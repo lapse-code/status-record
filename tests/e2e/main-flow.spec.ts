@@ -389,6 +389,29 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
 });
 
+test("shows weekly day timelines and navigates weeks", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "示例数据" }).click();
+  await expect(page.getByText("已加载 10 天示例数据")).toBeVisible();
+
+  await page.getByRole("button", { name: "周点阵" }).click();
+  await expect(page.getByRole("heading", { name: "周点阵" })).toBeVisible();
+  await expect(page.getByText("2026-06-08 到 2026-06-14")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /2026-06-10/ })).toBeVisible();
+  await expect(page.locator('[aria-label="2026-06-10 日点阵"]')).toBeVisible();
+
+  await page.getByRole("button", { name: "上一周" }).click();
+  await expect(page.getByText("2026-06-01 到 2026-06-07")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /2026-06-03/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "下一周" }).click();
+  await expect(page.getByText("2026-06-08 到 2026-06-14")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "周点阵日期" }).fill("2026-06-03");
+  await expect(page.getByText("2026-06-01 到 2026-06-07")).toBeVisible();
+});
+
 test("imports a JSON backup into local records", async ({ page }) => {
   await page.goto("/");
 
