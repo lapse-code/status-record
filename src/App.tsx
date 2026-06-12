@@ -159,6 +159,11 @@ export default function App() {
       ),
     [snapshot],
   );
+  const [todayTimelineDate, setTodayTimelineDate] = useState(toLocalDate());
+  const todayTimeline = useMemo(
+    () => buildDayTimeline(snapshot, todayTimelineDate),
+    [snapshot, todayTimelineDate],
+  );
   const remainingSeconds = activeFocusSession
     ? getRemainingSeconds(activeFocusSession, now)
     : 0;
@@ -279,19 +284,58 @@ export default function App() {
     { id: "analytics" as const, label: "统计", icon: BarChart3 },
     { id: "labels" as const, label: "标签", icon: Tags },
   ];
+  const activeViewCopy =
+    activeTab === "today"
+      ? { eyebrow: "今日工作台", title: "继续保持专注" }
+      : activeTab === "analytics"
+        ? { eyebrow: "统计分析", title: "复盘时间和状态" }
+        : { eyebrow: "标签管理", title: "整理记录分类" };
 
   if (isLoading) {
     return <div className="app-shell loading">正在载入本地记录...</div>;
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Status Record</p>
-          <h1>学习状态记录</h1>
+    <div className="app-shell focus-studio-shell">
+      <aside className="side-nav">
+        <div className="brand-mark">
+          <span className="brand-icon">
+            <CheckCircle2 size={20} />
+          </span>
+          <strong>Status Record</strong>
         </div>
-        <div className="topbar-actions">
+
+        <nav className="tabs" aria-label="主导航">
+          {navigation.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                className={activeTab === item.id ? "tab active" : "tab"}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="side-panel">
+          <span>休息余额</span>
+          <strong>{formatMinutes(breakBalance)}</strong>
+          <i>完成学习后自动累计</i>
+        </div>
+
+        <div className="side-spacer" />
+
+        <div className="side-panel subtle">
+          <span>本地数据已就绪</span>
+          <i>数据保存在此设备</i>
+        </div>
+
+        <div className="side-actions">
           <button className="ghost-button" type="button" onClick={handleSeedDemoData}>
             <Plus size={18} />
             示例数据
@@ -317,274 +361,297 @@ export default function App() {
             导出
           </button>
         </div>
-      </header>
+      </aside>
 
-      <nav className="tabs" aria-label="主导航">
-        {navigation.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              className={activeTab === item.id ? "tab active" : "tab"}
-              type="button"
-              onClick={() => setActiveTab(item.id)}
-            >
-              <Icon size={18} />
-              {item.label}
+      <div className="workspace">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">{activeViewCopy.eyebrow}</p>
+            <h1>{activeViewCopy.title}</h1>
+          </div>
+          <div className="topbar-meta">
+            <span>{toLocalDate(now)}</span>
+            <span>
+              {now.toLocaleDateString("zh-CN", {
+                weekday: "long",
+              })}
+            </span>
+          </div>
+        </header>
+
+        {message ? (
+          <div className="notice" role="status">
+            {message}
+            <button type="button" onClick={() => setMessage("")}>
+              关闭
             </button>
-          );
-        })}
-      </nav>
+          </div>
+        ) : null}
 
-      {message ? (
-        <div className="notice" role="status">
-          {message}
-          <button type="button" onClick={() => setMessage("")}>
-            关闭
-          </button>
-        </div>
-      ) : null}
-
-      {activeTab === "today" ? (
-        <main className="layout-grid">
-          <section className="panel timer-panel">
-            <div className="panel-heading">
-              <div>
-                <h2>番茄钟</h2>
-                <p>先到岗，再开始专注；启动延迟会自动计算。</p>
+        {activeTab === "today" ? (
+          <main className="layout-grid">
+            <section className="panel timer-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>专注倒计时</h2>
+                  <p>到岗记录启动延迟，番茄钟记录真实学习分钟。</p>
+                </div>
+                <div
+                  className={
+                    activeBreakSession || openArrival ? "status-pill active" : "status-pill"
+                  }
+                >
+                  {activeBreakSession ? "休息中" : openArrival ? "已到岗" : "未到岗"}
+                </div>
               </div>
-              <div
-                className={
-                  activeBreakSession || openArrival ? "status-pill active" : "status-pill"
-                }
-              >
-                {activeBreakSession ? "休息中" : openArrival ? "已到岗" : "未到岗"}
-              </div>
-            </div>
 
-            <div className="arrival-row">
+              <div className="arrival-row">
+                {activeBreakSession
+                  ? (
+                    <span>休息倒计时进行中，结束后会自动开始记录下一轮启动延迟。</span>
+                  ) : openArrival ? (
+                    <>
+                      <span>
+                        到岗时间：
+                        {new Date(openArrival.arrived_at).toLocaleTimeString("zh-CN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          runAction(
+                            () => checkOutArrival(openArrival.id),
+                            "已结束本次到岗记录。",
+                          )
+                        }
+                      >
+                        <LogOut size={18} />
+                        离开
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span>可以先到岗记录拖延；也可以直接开始番茄钟并同步到岗。</span>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() =>
+                          runAction(async () => {
+                            await checkInArrival();
+                          }, "已到岗，启动延迟开始记录。")
+                        }
+                      >
+                        <LogIn size={18} />
+                        到岗
+                      </button>
+                    </>
+                  )}
+              </div>
+
+              <div className="timer-face">
+                <div className="timer-value" aria-live="polite">
+                  {activeBreakSession
+                    ? formatTimer(breakRemainingSeconds)
+                    : activeFocusSession
+                      ? formatTimer(remainingSeconds)
+                      : pendingReviewSession
+                        ? "待复盘"
+                        : formatTimer(customMinutes * 60)}
+                </div>
+                <div className="timer-caption">
+                  {activeBreakSession
+                    ? "休息中"
+                    : activeFocusSession
+                      ? activeFocusSession.state === "paused"
+                        ? "已暂停"
+                        : "专注中"
+                      : pendingReviewSession
+                        ? "完成复盘后进入统计"
+                        : "选择固定时长或自定义时长"}
+                </div>
+              </div>
+
               {activeBreakSession ? (
-                <>
-                  <span>休息倒计时进行中，休息结束后会自动开始记录下一轮启动延迟。</span>
-                </>
-              ) : openArrival ? (
-                <>
-                  <span>
-                    到岗时间：
-                    {new Date(openArrival.arrived_at).toLocaleTimeString("zh-CN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() =>
-                      runAction(
-                        () => checkOutArrival(openArrival.id),
-                        "已结束本次到岗记录。",
-                      )
-                    }
-                  >
-                    <LogOut size={18} />
-                    离开
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span>可以先到岗记录拖延；也可以直接开始番茄钟，系统会同步到岗。</span>
+                <div className="button-row">
                   <button
                     className="primary-button"
                     type="button"
-                    onClick={() =>
-                      runAction(async () => {
-                        await checkInArrival();
-                      }, "已到岗，启动延迟开始记录。")
-                    }
+                    onClick={async () => {
+                      const result = await completeBreakTimer(activeBreakSession.id, {
+                        endedEarly: true,
+                      });
+                      await refresh();
+                      setMessage(
+                        result.refundMinutes > 0
+                          ? `已提前结束休息，退回 ${result.refundMinutes} 分钟休息余额。请选择下一轮番茄钟时间继续。`
+                          : "已提前结束休息，请选择下一轮番茄钟时间继续。",
+                      );
+                    }}
                   >
-                    <LogIn size={18} />
-                    到岗
+                    <CheckCircle2 size={18} />
+                    提前结束休息
                   </button>
-                </>
-              )}
-            </div>
-
-            <div className="timer-face">
-              <div className="timer-value" aria-live="polite">
-                {activeBreakSession
-                  ? formatTimer(breakRemainingSeconds)
-                  : activeFocusSession
-                    ? formatTimer(remainingSeconds)
-                    : pendingReviewSession
-                      ? "待复盘"
-                      : formatTimer(customMinutes * 60)}
-              </div>
-              <div className="timer-caption">
-                {activeBreakSession
-                  ? "休息中"
-                  : activeFocusSession
-                    ? activeFocusSession.state === "paused"
-                      ? "已暂停"
-                      : "专注中"
-                    : pendingReviewSession
-                      ? "完成复盘后进入统计"
-                      : "选择固定时长或自定义时长"}
-              </div>
-            </div>
-
-            {activeBreakSession ? (
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={async () => {
-                    const result = await completeBreakTimer(activeBreakSession.id, {
-                      endedEarly: true,
-                    });
-                    await refresh();
-                    setMessage(
-                      result.refundMinutes > 0
-                        ? `已提前结束休息，退回 ${result.refundMinutes} 分钟休息余额。请选择下一轮番茄钟时间继续。`
-                        : "已提前结束休息，请选择下一轮番茄钟时间继续。",
-                    );
-                  }}
-                >
-                  <CheckCircle2 size={18} />
-                  提前结束休息
-                </button>
-              </div>
-            ) : activeFocusSession ? (
-              <div className="button-row">
-                {activeFocusSession.state === "running" ? (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() =>
-                      runAction(() => pauseFocusTimer(activeFocusSession.id), "已暂停。")
-                    }
-                  >
-                    <Pause size={18} />
-                    暂停
-                  </button>
-                ) : (
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() =>
-                      runAction(
-                        () => resumeFocusTimer(activeFocusSession.id),
-                        "已继续。",
-                      )
-                    }
-                  >
-                    <Play size={18} />
-                    继续
-                  </button>
-                )}
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() =>
-                    runAction(
-                      () => completeFocusTimer(activeFocusSession.id),
-                      "已结束本轮，请复盘。",
-                    )
-                  }
-                >
-                  <CheckCircle2 size={18} />
-                  完成
-                </button>
-                <button
-                  className="danger-button"
-                  type="button"
-                  onClick={() =>
-                    runAction(
-                      () => cancelFocusTimer(activeFocusSession.id),
-                      "已取消本轮倒计时。",
-                    )
-                  }
-                >
-                  <Square size={18} />
-                  取消
-                </button>
-              </div>
-            ) : (
-              <div className="timer-controls">
-                <div className="preset-grid">
-                  {presetMinutes.map((minutes) => (
+                </div>
+              ) : activeFocusSession ? (
+                <div className="button-row">
+                  {activeFocusSession.state === "running" ? (
                     <button
-                      key={minutes}
                       className="secondary-button"
                       type="button"
-                      disabled={Boolean(pendingReviewSession || activeBreakSession)}
-                      onClick={() => handleStart(minutes)}
-                    >
-                      <TimerReset size={18} />
-                      {minutes} 分钟
-                    </button>
-                  ))}
-                </div>
-
-                <form
-                  className="custom-time-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleStart(customMinutes);
-                  }}
-                >
-                  <label>
-                    自定义分钟
-                    <input
-                      min={1}
-                      max={240}
-                      type="number"
-                      value={customMinutes}
-                      disabled={Boolean(pendingReviewSession || activeBreakSession)}
-                      onChange={(event) =>
-                        setCustomMinutes(Number(event.currentTarget.value))
+                      onClick={() =>
+                        runAction(() => pauseFocusTimer(activeFocusSession.id), "已暂停。")
                       }
-                    />
-                  </label>
+                    >
+                      <Pause size={18} />
+                      暂停
+                    </button>
+                  ) : (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() =>
+                        runAction(
+                          () => resumeFocusTimer(activeFocusSession.id),
+                          "已继续。",
+                        )
+                      }
+                    >
+                      <Play size={18} />
+                      继续
+                    </button>
+                  )}
                   <button
-                    className="primary-button"
-                    type="submit"
-                    disabled={Boolean(pendingReviewSession || activeBreakSession)}
+                    className="secondary-button"
+                    type="button"
+                    onClick={() =>
+                      runAction(
+                        () => completeFocusTimer(activeFocusSession.id),
+                        "已结束本轮，请复盘。",
+                      )
+                    }
                   >
-                    <Play size={18} />
-                    开始
+                    <CheckCircle2 size={18} />
+                    完成
                   </button>
-                </form>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    onClick={() =>
+                      runAction(
+                        () => cancelFocusTimer(activeFocusSession.id),
+                        "已取消本轮倒计时。",
+                      )
+                    }
+                  >
+                    <Square size={18} />
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <div className="timer-controls">
+                  <div className="preset-grid">
+                    {presetMinutes.map((minutes) => (
+                      <button
+                        key={minutes}
+                        className="secondary-button"
+                        type="button"
+                        disabled={Boolean(pendingReviewSession || activeBreakSession)}
+                        onClick={() => handleStart(minutes)}
+                      >
+                        <TimerReset size={18} />
+                        {minutes} 分钟
+                      </button>
+                    ))}
+                  </div>
+
+                  <form
+                    className="custom-time-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleStart(customMinutes);
+                    }}
+                  >
+                    <label>
+                      自定义分钟
+                      <input
+                        min={1}
+                        max={240}
+                        type="number"
+                        value={customMinutes}
+                        disabled={Boolean(pendingReviewSession || activeBreakSession)}
+                        onChange={(event) =>
+                          setCustomMinutes(Number(event.currentTarget.value))
+                        }
+                      />
+                    </label>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={Boolean(pendingReviewSession || activeBreakSession)}
+                      onClick={() => void handleStart(customMinutes)}
+                    >
+                      <Play size={18} />
+                      开始
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="break-bank-row">
+                <div>
+                  <span>休息余额</span>
+                  <strong>{formatMinutes(breakBalance)}</strong>
+                </div>
+                <p>每完成 25 分钟学习获得 5 分钟休息。</p>
               </div>
-            )}
-          </section>
+            </section>
 
-          <section className="summary-strip">
-            <StatCard
-              label="今日学习"
-              value={formatMinutes(todaySummary.totalFocusMinutes)}
+            <aside className="today-side">
+              <section className="summary-strip">
+                <StatCard
+                  label="今日学习"
+                  value={formatMinutes(todaySummary.totalFocusMinutes)}
+                />
+                <StatCard
+                  label="今日启动延迟"
+                  value={formatMinutes(todaySummary.totalStartupDelayMinutes)}
+                />
+                <StatCard
+                  label="注意力切换"
+                  value={`${todaySummary.totalAttentionSwitchCount} 次`}
+                />
+                <StatCard label="休息余额" value={formatMinutes(breakBalance)} />
+              </section>
+
+              <SleepPanel snapshot={snapshot} onSaved={refresh} onMessage={setMessage} />
+            </aside>
+
+            <DayTimelinePanel
+              cells={todayTimeline}
+              date={todayTimelineDate}
+              onDateChange={(date) => setTodayTimelineDate(date || toLocalDate())}
+              onNextDate={() =>
+                setTodayTimelineDate((date) => shiftLocalDate(date, 1))
+              }
+              onPreviousDate={() =>
+                setTodayTimelineDate((date) => shiftLocalDate(date, -1))
+              }
+              onToday={() => setTodayTimelineDate(toLocalDate())}
             />
-            <StatCard
-              label="今日启动延迟"
-              value={formatMinutes(todaySummary.totalStartupDelayMinutes)}
-            />
-            <StatCard
-              label="注意力切换"
-              value={`${todaySummary.totalAttentionSwitchCount} 次`}
-            />
-            <StatCard label="休息余额" value={formatMinutes(breakBalance)} />
-          </section>
 
-          <SleepPanel snapshot={snapshot} onSaved={refresh} onMessage={setMessage} />
+            <RecentSessions snapshot={snapshot} />
+          </main>
+        ) : null}
 
-          <RecentSessions snapshot={snapshot} />
-        </main>
-      ) : null}
+        {activeTab === "analytics" ? <AnalyticsView snapshot={snapshot} /> : null}
 
-      {activeTab === "analytics" ? <AnalyticsView snapshot={snapshot} /> : null}
-
-      {activeTab === "labels" ? (
-        <LabelsView snapshot={snapshot} onChanged={refresh} onMessage={setMessage} />
-      ) : null}
+        {activeTab === "labels" ? (
+          <LabelsView snapshot={snapshot} onChanged={refresh} onMessage={setMessage} />
+        ) : null}
+      </div>
 
       {pendingReviewSession ? (
         <ReviewModal
@@ -681,7 +748,7 @@ function SleepPanel({
   }
 
   return (
-    <section className="panel">
+    <section className="panel sleep-panel">
       <div className="panel-heading">
         <div>
           <h2>睡眠</h2>
@@ -1377,6 +1444,17 @@ function DayTimelinePanel({
   onPreviousDate: () => void;
   onToday: () => void;
 }) {
+  const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
+  const slotsPerColumn = panelWidth >= 820 ? 6 : 12;
+  const mode = slotsPerColumn === 6 ? "half-hour" : "hour";
+  const columns = Array.from(
+    { length: Math.ceil(cells.length / slotsPerColumn) },
+    (_, columnIndex) =>
+      cells.slice(
+        columnIndex * slotsPerColumn,
+        columnIndex * slotsPerColumn + slotsPerColumn,
+      ),
+  );
   const counts = cells.reduce(
     (result, cell) => {
       result[cell.state] += 1;
@@ -1386,11 +1464,18 @@ function DayTimelinePanel({
   );
 
   return (
-    <section className="panel day-dot-panel">
+    <section
+      ref={panelRef}
+      className={`panel day-dot-panel ${mode}`}
+      style={{ "--timeline-columns": columns.length } as React.CSSProperties}
+    >
       <div className="notes-panel-heading">
         <div>
           <h3>日点阵</h3>
-          <p>{date} · 每点 5 分钟 · 每列 1 小时</p>
+          <p>
+            {date} · 每点 5 分钟 · 每列
+            {mode === "half-hour" ? " 30 分钟" : " 1 小时"}
+          </p>
         </div>
         <div className="timeline-actions">
           <div className="timeline-controls" aria-label="点阵日期控制">
@@ -1436,13 +1521,17 @@ function DayTimelinePanel({
       </div>
       <div className="day-dot-scroll">
         <div className="day-dot-grid" aria-label={`${date} 日点阵`}>
-          {cells.map((cell) => (
-            <span
-              key={cell.id}
-              aria-label={`${cell.timeLabel} ${timelineCellLabel(cell.state)}`}
-              className={`day-dot ${cell.state}`}
-              title={cell.title}
-            />
+          {columns.map((column, columnIndex) => (
+            <div className="day-dot-column" key={`${date}-${columnIndex}`}>
+              {column.map((cell) => (
+                <span
+                  key={cell.id}
+                  aria-label={`${cell.timeLabel} ${timelineCellLabel(cell.state)}`}
+                  className={`day-dot ${cell.state}`}
+                  title={cell.title}
+                />
+              ))}
+            </div>
           ))}
         </div>
         <div className="hour-axis" aria-hidden="true">
@@ -1453,6 +1542,31 @@ function DayTimelinePanel({
       </div>
     </section>
   );
+}
+
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+    const observedElement: T = element;
+
+    function updateWidth() {
+      setWidth(observedElement.getBoundingClientRect().width);
+    }
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(observedElement);
+
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, width] as const;
 }
 
 function timelineCellLabel(state: DayTimelineCell["state"]) {
@@ -1689,20 +1803,67 @@ function LabelRow({
 }
 
 function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
-  const recent = snapshot.focusSessions
+  const [filter, setFilter] = useState<DetailFilter>(null);
+  const labelsById = new Map(snapshot.labels.map((label) => [label.id, label]));
+  const reviewsByFocusId = new Map(
+    snapshot.sessionReviews
+      .filter((review) => !review.deleted_at)
+      .map((review) => [review.focus_session_id, review]),
+  );
+  const reviewLabelsByReviewId = new Map<Id, AppSnapshot["sessionReviewLabels"]>();
+  snapshot.sessionReviewLabels.forEach((relation) => {
+    const relations = reviewLabelsByReviewId.get(relation.review_id) ?? [];
+    relations.push(relation);
+    reviewLabelsByReviewId.set(relation.review_id, relations);
+  });
+  const entries = snapshot.focusSessions
     .filter((session) => session.state === "reviewed")
     .sort(
       (a, b) =>
         new Date(b.completed_at ?? b.started_at).getTime() -
         new Date(a.completed_at ?? a.started_at).getTime(),
     )
-    .slice(0, 5);
-  const reviewsByFocusId = new Map(
-    snapshot.sessionReviews.map((review) => [review.focus_session_id, review]),
-  );
+    .map((session) => {
+      const review = reviewsByFocusId.get(session.id);
+      const reviewLabels = review ? reviewLabelsByReviewId.get(review.id) ?? [] : [];
+      const productLabelIds = reviewLabels
+        .filter((relation) => relation.label_type === "product")
+        .map((relation) => relation.label_id);
+      const blockerLabelIds = reviewLabels
+        .filter((relation) => relation.label_type === "blocker")
+        .map((relation) => relation.label_id);
+
+      return {
+        session,
+        review,
+        statusLabelId: review?.status_label_id,
+        statusLabelName: review
+          ? labelNameById(snapshot.labels, review.status_label_id)
+          : "未复盘",
+        productLabelIds,
+        productLabelNames: productLabelIds.map((id) => labelsById.get(id)?.name).filter(Boolean),
+        blockerLabelIds,
+        blockerLabelNames: blockerLabelIds.map((id) => labelsById.get(id)?.name).filter(Boolean),
+      };
+    });
+  const filterOptions = buildRecentFilterOptions(entries, labelsById).slice(0, 8);
+  const filteredEntries = filter
+    ? entries.filter((entry) => {
+        if (filter.type === "session_status") {
+          return entry.statusLabelId === filter.id;
+        }
+
+        if (filter.type === "product") {
+          return entry.productLabelIds.includes(filter.id);
+        }
+
+        return entry.blockerLabelIds.includes(filter.id);
+      })
+    : entries;
+  const recent = filteredEntries.slice(0, 5);
 
   return (
-    <section className="panel">
+    <section className="panel recent-panel">
       <div className="panel-heading">
         <div>
           <h2>最近记录</h2>
@@ -1710,29 +1871,107 @@ function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
         </div>
         <RotateCcw size={22} />
       </div>
+      {entries.length > 0 ? (
+        <div className="recent-filter-bar" aria-label="最近记录筛选">
+          <button
+            className={!filter ? "filter-chip selected" : "filter-chip"}
+            type="button"
+            onClick={() => setFilter(null)}
+          >
+            全部
+          </button>
+          {filterOptions.map((option) => (
+            <button
+              key={`${option.type}-${option.id}`}
+              className={
+                filter?.type === option.type && filter.id === option.id
+                  ? "filter-chip selected"
+                  : "filter-chip"
+              }
+              type="button"
+              onClick={() =>
+                setFilter((current) =>
+                  current?.type === option.type && current.id === option.id
+                    ? null
+                    : { type: option.type, id: option.id },
+                )
+              }
+            >
+              {option.name} {option.count}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {recent.length > 0 ? (
         <ul className="recent-list">
-          {recent.map((session) => {
-            const review = reviewsByFocusId.get(session.id);
+          {recent.map((entry) => {
+            const { review, session } = entry;
             return (
               <li key={session.id}>
                 <span>{session.local_date}</span>
                 <strong>{formatMinutes(session.actual_duration_minutes ?? 0)}</strong>
-                <em>
-                  {review
-                    ? labelNameById(snapshot.labels, review.status_label_id)
-                    : "未复盘"}
-                </em>
+                <em>{entry.statusLabelName}</em>
                 <p>{review?.product_note || "没有产物文字"}</p>
               </li>
             );
           })}
         </ul>
       ) : (
-        <p className="empty-text">完成第一轮复盘后，这里会显示记录。</p>
+        <p className="empty-text">
+          {entries.length > 0 ? "当前筛选下没有记录。" : "完成第一轮复盘后，这里会显示记录。"}
+        </p>
       )}
     </section>
   );
+}
+
+function buildRecentFilterOptions(
+  entries: {
+    statusLabelId?: Id;
+    productLabelIds: Id[];
+    blockerLabelIds: Id[];
+  }[],
+  labelsById: Map<Id, LabelRecord>,
+) {
+  const options = new Map<
+    string,
+    { type: LabelType; id: Id; name: string; count: number }
+  >();
+
+  entries.forEach((entry) => {
+    if (entry.statusLabelId) {
+      incrementRecentFilterOption(options, labelsById, "session_status", entry.statusLabelId);
+    }
+    entry.productLabelIds.forEach((id) =>
+      incrementRecentFilterOption(options, labelsById, "product", id),
+    );
+    entry.blockerLabelIds.forEach((id) =>
+      incrementRecentFilterOption(options, labelsById, "blocker", id),
+    );
+  });
+
+  return Array.from(options.values()).sort((a, b) => b.count - a.count);
+}
+
+function incrementRecentFilterOption(
+  options: Map<string, { type: LabelType; id: Id; name: string; count: number }>,
+  labelsById: Map<Id, LabelRecord>,
+  type: LabelType,
+  id: Id,
+) {
+  const label = labelsById.get(id);
+  if (!label) {
+    return;
+  }
+
+  const key = `${type}-${id}`;
+  const existing = options.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+
+  options.set(key, { type, id, name: label.name, count: 1 });
 }
 
 function getActiveFocusSession(

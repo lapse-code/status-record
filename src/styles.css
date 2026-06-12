@@ -889,3 +889,816 @@ legend {
     margin-top: -18px;
   }
 }
+
+/* Focus Studio redesign */
+:root {
+  color: #16211d;
+  background: #f6f7f3;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+body {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 247, 243, 0.98)),
+    #f6f7f3;
+}
+
+.focus-studio-shell {
+  display: grid;
+  width: 100%;
+  min-height: 100vh;
+  grid-template-columns: 236px minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+}
+
+.workspace {
+  min-width: 0;
+  padding: 22px 22px 42px;
+}
+
+.side-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  gap: 18px;
+  border-right: 1px solid #dfe5de;
+  padding: 22px 16px;
+  background: rgba(252, 253, 250, 0.96);
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  color: #111b17;
+  font-size: 1.05rem;
+}
+
+.brand-icon {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  place-items: center;
+  color: #ffffff;
+  background: #218653;
+}
+
+.side-nav .tabs {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.side-nav .tab {
+  justify-content: flex-start;
+  min-height: 44px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #42524b;
+  font-weight: 750;
+}
+
+.side-nav .tab.active {
+  border-color: #dbe9df;
+  color: #16633f;
+  background: #eef8f1;
+  box-shadow: inset 3px 0 0 #218653;
+}
+
+.side-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe5dc;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.side-panel span {
+  color: #61706a;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.side-panel strong {
+  color: #14221c;
+  font-size: 1.4rem;
+  line-height: 1.1;
+}
+
+.side-panel i {
+  color: #6d7873;
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.side-panel.subtle {
+  background: #fbfcf8;
+}
+
+.side-spacer {
+  flex: 1;
+}
+
+.side-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.side-actions .ghost-button {
+  justify-content: flex-start;
+}
+
+.topbar {
+  margin-bottom: 18px;
+  border-bottom: 1px solid #e2e7e0;
+  padding-bottom: 18px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.2vw, 1.9rem);
+  line-height: 1.2;
+}
+
+.topbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #dfe5de;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #33423c;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  color: #218653;
+  font-size: 0.8rem;
+}
+
+.notice {
+  border-color: #c7dfd0;
+  background: #f0faf3;
+  box-shadow: none;
+}
+
+.panel {
+  border-color: #dfe5de;
+  border-radius: 8px;
+  background: rgba(255, 255, 253, 0.98);
+  box-shadow: 0 1px 2px rgba(31, 41, 35, 0.04);
+}
+
+.layout-grid {
+  grid-template-columns: minmax(480px, 1.55fr) minmax(360px, 0.95fr);
+  grid-template-areas:
+    "timer summary"
+    "timer sleep"
+    "recent timeline";
+  align-items: start;
+}
+
+.layout-grid .timer-panel {
+  grid-area: timer;
+  grid-column: auto;
+}
+
+.layout-grid .summary-strip {
+  grid-area: summary;
+  grid-column: auto;
+}
+
+.layout-grid .sleep-panel {
+  grid-area: sleep;
+}
+
+.layout-grid .recent-panel {
+  grid-area: recent;
+}
+
+.layout-grid > .day-dot-panel {
+  grid-area: timeline;
+  grid-column: 1 / -1;
+}
+
+.timer-panel {
+  padding: 22px;
+}
+
+.timer-panel .panel-heading {
+  margin-bottom: 14px;
+}
+
+.timer-panel h2 {
+  font-size: 1.08rem;
+}
+
+.arrival-row {
+  min-height: 64px;
+  border-color: #dce7df;
+  background: #f8fbf8;
+}
+
+.arrival-row span {
+  color: #40504a;
+  font-weight: 750;
+}
+
+.status-pill {
+  color: #9f382e;
+  background: #fff1ed;
+}
+
+.status-pill.active {
+  color: #16633f;
+  background: #e4f6ea;
+}
+
+.timer-face {
+  min-height: 292px;
+  border: 0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #e0e7e1;
+}
+
+.timer-value {
+  color: #17211d;
+  font-size: clamp(4.4rem, 9vw, 7.6rem);
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.timer-caption {
+  margin-top: -46px;
+  color: #62716b;
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.timer-controls {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.preset-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.custom-time-form {
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 0.7fr);
+  border-top: 1px solid #e4e9e3;
+  padding-top: 14px;
+}
+
+.break-bank-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  border: 1px solid #dce7df;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #f8fbf8;
+}
+
+.break-bank-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.break-bank-row span,
+.break-bank-row p {
+  margin: 0;
+  color: #62716b;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.break-bank-row strong {
+  color: #16633f;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.summary-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat-card {
+  min-height: 94px;
+  border-color: #e0e6df;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.stat-card strong {
+  color: #17211d;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.stat-card:nth-child(1) strong,
+.stat-card:nth-child(4) strong {
+  color: #167246;
+}
+
+.stat-card:nth-child(2) strong {
+  color: #c7352b;
+}
+
+.stat-card:nth-child(3) strong {
+  color: #b97812;
+}
+
+.sleep-panel .panel-heading,
+.recent-panel .panel-heading {
+  margin-bottom: 14px;
+}
+
+.sleep-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sleep-form label:first-child,
+.sleep-form .wide-field {
+  grid-column: 1 / -1;
+}
+
+.sleep-form .primary-button {
+  grid-column: 2;
+}
+
+.day-dot-panel {
+  min-height: 0;
+}
+
+.layout-grid .day-dot-panel .notes-panel-heading {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.layout-grid .day-dot-panel .timeline-actions {
+  width: 100%;
+  justify-items: stretch;
+}
+
+.layout-grid .day-dot-panel .timeline-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-content: stretch;
+}
+
+.layout-grid .day-dot-panel .timeline-controls label {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.layout-grid .day-dot-panel .timeline-controls .secondary-button {
+  grid-column: 1 / -1;
+}
+
+.layout-grid .day-dot-panel .dot-legend {
+  justify-content: flex-start;
+}
+
+.layout-grid .day-dot-panel .day-dot-grid {
+  grid-template-columns: repeat(24, 11px);
+  grid-template-rows: repeat(12, 11px);
+  gap: 5px;
+  min-width: max-content;
+}
+
+.layout-grid .day-dot-panel .day-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.layout-grid .day-dot-panel .hour-axis {
+  grid-template-columns: repeat(24, 11px);
+  gap: 5px;
+}
+
+.recent-list {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #e1e7e0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.recent-list li {
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #e7ece6;
+  background: #ffffff;
+}
+
+.recent-list li:last-child {
+  border-bottom: 0;
+}
+
+.primary-button {
+  border-color: #218653;
+  background: #218653;
+}
+
+.primary-button:hover {
+  background: #176a42;
+}
+
+.secondary-button {
+  border-color: #d9e2db;
+  color: #24352e;
+  background: #ffffff;
+}
+
+.secondary-button:hover,
+.ghost-button:hover {
+  border-color: #bfcfc4;
+  background: #f7faf7;
+}
+
+.danger-button {
+  border-color: #efc9c4;
+  color: #b12f2b;
+  background: #fff8f6;
+}
+
+input,
+select,
+textarea,
+.stepper-control {
+  border-color: #d9e2db;
+  border-radius: 8px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid #218653;
+  outline-offset: 1px;
+}
+
+@media (max-width: 1120px) {
+  .focus-studio-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .side-nav {
+    position: static;
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid #dfe5de;
+  }
+
+  .side-nav .tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .side-panel,
+  .side-actions {
+    display: none;
+  }
+
+  .layout-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "timer"
+      "summary"
+      "sleep"
+      "timeline"
+      "recent";
+  }
+}
+
+@media (max-width: 700px) {
+  .workspace {
+    padding: 16px 12px 32px;
+  }
+
+  .side-nav {
+    padding: 16px 12px;
+  }
+
+  .topbar,
+  .arrival-row,
+  .panel-heading,
+  .break-bank-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topbar-meta {
+    justify-content: space-between;
+  }
+
+  .button-row,
+  .summary-strip,
+  .preset-grid,
+  .custom-time-form,
+  .sleep-form,
+  .layout-grid .day-dot-panel .timeline-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .sleep-form .primary-button,
+  .sleep-form label:first-child,
+  .sleep-form .wide-field {
+    grid-column: auto;
+  }
+
+  .timer-face {
+    min-height: 230px;
+  }
+
+  .timer-value {
+    font-size: clamp(3.2rem, 18vw, 5rem);
+  }
+
+  .timer-caption {
+    margin-top: -30px;
+  }
+}
+
+/* Layout tightening and adaptive timeline density */
+.layout-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
+  grid-template-areas:
+    "timer side"
+    "timeline timeline"
+    "recent recent";
+  gap: 16px;
+}
+
+.today-side {
+  grid-area: side;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.layout-grid .timer-panel {
+  grid-area: timer;
+}
+
+.layout-grid > .day-dot-panel {
+  grid-area: timeline;
+  grid-column: 1 / -1;
+}
+
+.layout-grid .recent-panel {
+  grid-area: recent;
+}
+
+.today-side .summary-strip,
+.today-side .sleep-panel {
+  grid-area: auto;
+  grid-column: auto;
+}
+
+.today-side .summary-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.analytics-layout .summary-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.today-side .sleep-panel {
+  min-height: 0;
+}
+
+.day-dot-panel {
+  --day-dot-size: 20px;
+  --day-dot-gap: 7px;
+}
+
+.day-dot-panel.half-hour {
+  --day-dot-size: 16px;
+  --day-dot-gap: 6px;
+}
+
+.day-dot-panel .notes-panel-heading,
+.layout-grid .day-dot-panel .notes-panel-heading {
+  align-items: flex-start;
+  flex-direction: row;
+}
+
+.timeline-actions,
+.layout-grid .day-dot-panel .timeline-actions {
+  display: flex;
+  width: auto;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px 12px;
+  justify-items: auto;
+}
+
+.timeline-controls,
+.layout-grid .day-dot-panel .timeline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.timeline-controls label,
+.layout-grid .day-dot-panel .timeline-controls label {
+  grid-column: auto;
+  width: 150px;
+  min-width: 150px;
+}
+
+.layout-grid .day-dot-panel .timeline-controls .secondary-button {
+  grid-column: auto;
+}
+
+.dot-legend,
+.layout-grid .day-dot-panel .dot-legend {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.day-dot-scroll {
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+
+.day-dot-grid,
+.layout-grid .day-dot-panel .day-dot-grid {
+  display: grid;
+  grid-auto-flow: row;
+  width: 100%;
+  min-width: max-content;
+  grid-template-columns: repeat(
+    var(--timeline-columns),
+    minmax(var(--day-dot-size), 1fr)
+  );
+  grid-template-rows: none;
+  gap: var(--day-dot-gap);
+  align-items: start;
+  justify-content: stretch;
+}
+
+.day-dot-column {
+  display: grid;
+  justify-items: center;
+  gap: var(--day-dot-gap);
+}
+
+.day-dot-panel.hour .day-dot-column {
+  grid-template-rows: repeat(12, var(--day-dot-size));
+}
+
+.day-dot-panel.half-hour .day-dot-column {
+  grid-template-rows: repeat(6, var(--day-dot-size));
+}
+
+.day-dot,
+.layout-grid .day-dot-panel .day-dot {
+  width: var(--day-dot-size);
+  height: var(--day-dot-size);
+  border-radius: 5px;
+}
+
+.hour-axis,
+.layout-grid .day-dot-panel .hour-axis {
+  display: grid;
+  width: 100%;
+  min-width: max-content;
+  margin-top: 10px;
+  color: #7d8781;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.day-dot-panel.hour .hour-axis {
+  grid-template-columns: repeat(24, minmax(var(--day-dot-size), 1fr));
+  gap: var(--day-dot-gap);
+}
+
+.day-dot-panel.half-hour .hour-axis {
+  grid-template-columns: repeat(
+    24,
+    minmax(calc(var(--day-dot-size) * 2 + var(--day-dot-gap)), 1fr)
+  );
+  gap: var(--day-dot-gap);
+}
+
+.hour-axis span {
+  min-width: 0;
+  text-align: center;
+}
+
+.recent-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d9e2db;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: #42524b;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.filter-chip.selected {
+  border-color: #218653;
+  color: #16633f;
+  background: #eef8f1;
+}
+
+@media (max-width: 1120px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "timer"
+      "side"
+      "timeline"
+      "recent";
+  }
+
+  .today-side .summary-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .analytics-layout .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .day-dot-panel .notes-panel-heading,
+  .layout-grid .day-dot-panel .notes-panel-heading,
+  .timeline-actions,
+  .layout-grid .day-dot-panel .timeline-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timeline-controls,
+  .layout-grid .day-dot-panel .timeline-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .timeline-controls label,
+  .layout-grid .day-dot-panel .timeline-controls label {
+    grid-column: 1 / -1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .timeline-controls .secondary-button,
+  .layout-grid .day-dot-panel .timeline-controls .secondary-button {
+    grid-column: 1 / -1;
+  }
+
+  .dot-legend,
+  .layout-grid .day-dot-panel .dot-legend {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .today-side .summary-strip {
+    grid-template-columns: 1fr;
+  }
+}

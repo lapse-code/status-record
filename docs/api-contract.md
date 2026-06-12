@@ -287,7 +287,8 @@ interface DayTimelineCell {
 规则：
 
 - 一天固定输出 288 个 cell。
-- 每 5 分钟一个点，纵向 12 个点为 1 小时，横向 24 列为一天。
+- 每 5 分钟一个点，源数据固定按一天 288 个 cell 输出。
+- UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
 - `startup_delay` 来自 arrival 到第一轮 focus start 的时间段。
 - `focus` 来自已复盘且没有阻塞/被打断的 focus session。
 - `blocked` 来自有非“无”阻塞标签，或状态为“被打断/卡住”的 focus session。

@@ -284,14 +284,22 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("完成统计页面图表")).toBeVisible();
   await expect(page.getByRole("heading", { name: "记录明细" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "日点阵" })).toBeVisible();
-  await expect(page.getByText("2026-06-10 · 每点 5 分钟 · 每列 1 小时")).toBeVisible();
+  await expect(
+    page.getByText(/2026-06-10 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+  ).toBeVisible();
   await expect(page.getByText("学习 22")).toBeVisible();
   await page.getByRole("button", { name: "前一天" }).click();
-  await expect(page.getByText("2026-06-09 · 每点 5 分钟 · 每列 1 小时")).toBeVisible();
+  await expect(
+    page.getByText(/2026-06-09 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+  ).toBeVisible();
   await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-03");
-  await expect(page.getByText("2026-06-03 · 每点 5 分钟 · 每列 1 小时")).toBeVisible();
+  await expect(
+    page.getByText(/2026-06-03 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+  ).toBeVisible();
   await page.getByRole("button", { name: "后一天" }).click();
-  await expect(page.getByText("2026-06-04 · 每点 5 分钟 · 每列 1 小时")).toBeVisible();
+  await expect(
+    page.getByText(/2026-06-04 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+  ).toBeVisible();
 
   const productPanel = page.locator(".chart-panel").filter({ hasText: "产物标签" });
   await productPanel.getByRole("button", { name: "文件 4" }).click();
@@ -327,7 +335,7 @@ test("imports a JSON backup into local records", async ({ page }) => {
 
   await expect(page.getByText("已导入 7 条记录。")).toBeVisible();
   await page.getByRole("button", { name: "统计" }).click();
-  await page.getByRole("button", { name: "日" }).click();
+  await page.getByRole("button", { name: "月" }).click();
 
   await expect(
     page.locator(".stat-card").filter({ hasText: "学习时长" }).getByText("25 分钟"),
