@@ -796,7 +796,7 @@ describe("analytics summary", () => {
 });
 
 function localIso(hour: number, minute: number) {
-  return new Date(2026, 5, 11, hour, minute, 0, 0).toISOString();
+  return new Date(Date.UTC(2026, 5, 10, 15 + hour, minute, 0, 0)).toISOString();
 }
 
 function createBoundaryTimelineSnapshot({
