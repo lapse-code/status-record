@@ -120,7 +120,23 @@ interface CompleteBreakTimerResult {
 - 用户在复盘中选择“使用休息”后，系统创建 running break session。
 - 休息倒计时自然结束时，使用完整计划休息分钟。
 - 用户提前结束休息时，按已过时间向上取整扣除实际使用分钟，未用完分钟写入 adjustment 退回余额。
-- 休息结束后，系统重新打开一个 arrival session，用于记录下一轮启动延迟。
+- 休息自然结束且仍有可用余额时，UI 可以暂不重新打开 arrival session，而是弹窗询问是否继续休息。
+- 用户选择开始学习，或没有剩余休息余额时，系统重新打开一个 arrival session，用于记录下一轮启动延迟。
+
+### startBreakTimer
+
+```ts
+interface StartBreakTimerInput {
+  minutes: number;
+}
+```
+
+规则：
+
+- 用于复盘之外的继续休息场景，例如休息自然结束后继续使用余额。
+- `minutes` 必须大于 0，且不能超过当前休息余额。
+- 启动时写入一条 `used` 交易，并创建新的 running `break_sessions`。
+- 如果当前有打开的 arrival session，开始休息前会关闭它，避免休息时间被记为启动延迟。
 
 ## Arrival Service
 

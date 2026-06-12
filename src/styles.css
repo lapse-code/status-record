@@ -1625,6 +1625,20 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.break-completion-modal {
+  max-width: 520px;
+}
+
+.break-extension-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.button-row.two-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .filter-chip {
   display: inline-flex;
   min-height: 34px;
@@ -1694,6 +1708,11 @@ textarea:focus {
   .dot-legend,
   .layout-grid .day-dot-panel .dot-legend {
     justify-content: flex-start;
+  }
+
+  .break-extension-grid,
+  .button-row.two-actions {
+    grid-template-columns: 1fr;
   }
 }
 

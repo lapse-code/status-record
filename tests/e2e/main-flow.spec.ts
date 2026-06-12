@@ -138,6 +138,51 @@ const pendingReviewBreakFixture = {
   },
 };
 
+const expiredBreakWithBalanceFixture = {
+  format: "status-record.backup",
+  formatVersion: 1,
+  appVersion: "0.1.0",
+  exportedAt: "2026-06-11T00:00:00.000Z",
+  tables: {
+    labels: [],
+    arrival_sessions: [],
+    focus_sessions: [],
+    session_reviews: [],
+    session_review_labels: [],
+    break_bank_transactions: [
+      {
+        id: "extend-break-earned",
+        local_date: "2026-06-11",
+        type: "earned",
+        minutes: 20,
+        note: "延长休息测试余额",
+        created_at: "2026-06-11T00:00:00.000Z",
+      },
+      {
+        id: "extend-break-used",
+        local_date: "2026-06-11",
+        type: "used",
+        minutes: -5,
+        note: "正在进行的休息已扣除",
+        created_at: "2026-06-11T00:05:00.000Z",
+      },
+    ],
+    break_sessions: [
+      {
+        id: "extend-break-running",
+        local_date: "2026-06-11",
+        planned_duration_minutes: 5,
+        started_at: "2026-06-11T00:05:00.000Z",
+        state: "running",
+        created_at: "2026-06-11T00:05:00.000Z",
+        updated_at: "2026-06-11T00:05:00.000Z",
+      },
+    ],
+    sleep_logs: [],
+    app_settings: [],
+  },
+};
+
 test("records a completed focus session review", async ({ page }) => {
   await page.goto("/");
 
@@ -216,6 +261,26 @@ test("starts and ends a break timer after review", async ({ page }) => {
   await expect(page.getByText("已提前结束休息")).toBeVisible();
   await expect(page.getByText("已到岗", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "25 分钟" })).toBeEnabled();
+});
+
+test("prompts to extend break when rest balance remains", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("导入 JSON 文件").setInputFiles({
+    name: "status-record-expired-break.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(expiredBreakWithBalanceFixture)),
+  });
+
+  await expect(page.getByRole("heading", { name: "休息结束" })).toBeVisible();
+  await expect(page.getByText(/当前还有 15 分钟\s*可用休息。/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "继续休息 5 分钟" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "使用全部 15 分钟" })).toBeVisible();
+  await expect(page.getByLabel("自定义休息分钟")).toHaveValue("5");
+
+  await page.getByRole("button", { name: "继续休息 5 分钟" }).click();
+  await expect(page.getByText("已继续休息 5 分钟。")).toBeVisible();
+  await expect(page.locator(".timer-caption")).toHaveText("休息中");
 });
 
 test("restores a running focus timer after reload", async ({ page }) => {

@@ -340,7 +340,7 @@ export async function submitSessionReview(
 
 export async function completeBreakTimer(
   breakSessionId: Id,
-  options: { endedEarly?: boolean } = {},
+  options: { endedEarly?: boolean; restartNextArrival?: boolean } = {},
 ): Promise<{ usedMinutes: number; refundMinutes: number }> {
   const session = await db.break_sessions.get(breakSessionId);
   if (!session || session.state !== "running") {
@@ -381,11 +381,67 @@ export async function completeBreakTimer(
         });
       }
 
-      await restartArrivalForNextFocus(timestamp, "休息结束，等待下一轮专注");
+      if (options.restartNextArrival ?? true) {
+        await restartArrivalForNextFocus(timestamp, "休息结束，等待下一轮专注");
+      }
     },
   );
 
   return { usedMinutes, refundMinutes };
+}
+
+export async function startBreakTimer(minutes: number): Promise<Id> {
+  const breakMinutes = Math.round(minutes);
+  if (!Number.isFinite(breakMinutes) || breakMinutes <= 0) {
+    throw new Error("休息分钟数必须大于 0。");
+  }
+
+  const activeFocusSession = await getActiveFocusSession();
+  if (activeFocusSession) {
+    throw new Error("专注倒计时正在进行。");
+  }
+
+  const activeBreakSession = await getActiveBreakSession();
+  if (activeBreakSession) {
+    throw new Error("休息倒计时正在进行。");
+  }
+
+  const balance = await getBreakBalance();
+  if (breakMinutes > balance) {
+    throw new Error("使用的休息时间不能超过当前余额。");
+  }
+
+  const timestamp = nowIso();
+  const breakSessionId = createId("break");
+
+  await db.transaction(
+    "rw",
+    db.break_bank_transactions,
+    db.break_sessions,
+    db.arrival_sessions,
+    async () => {
+      await db.break_bank_transactions.add({
+        id: `break-used-${breakSessionId}`,
+        local_date: toLocalDate(new Date(timestamp)),
+        type: "used",
+        minutes: -breakMinutes,
+        note: "延长休息使用休息余额",
+        created_at: timestamp,
+      });
+      await db.break_sessions.add({
+        id: breakSessionId,
+        local_date: toLocalDate(new Date(timestamp)),
+        planned_duration_minutes: breakMinutes,
+        started_at: timestamp,
+        state: "running",
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+      await closeCurrentArrival(timestamp);
+    },
+  );
+
+  return breakSessionId;
 }
 
 export async function upsertSleepLog(input: {

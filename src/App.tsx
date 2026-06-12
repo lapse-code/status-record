@@ -65,6 +65,7 @@ import {
   pauseFocusTimer,
   resumeFocusTimer,
   seedDemoData,
+  startBreakTimer,
   startFocusTimer,
   submitSessionReview,
   updateLabel,
@@ -111,6 +112,7 @@ export default function App() {
   const [message, setMessage] = useState<string>("");
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
+  const [showBreakCompletionPrompt, setShowBreakCompletionPrompt] = useState(false);
   const completingRef = useRef<string | null>(null);
   const completingBreakRef = useRef<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -198,17 +200,26 @@ export default function App() {
       completingBreakRef.current !== activeBreakSession.id
     ) {
       completingBreakRef.current = activeBreakSession.id;
-      completeBreakTimer(activeBreakSession.id)
+      const shouldAskToExtendBreak = breakBalance > 0;
+      completeBreakTimer(activeBreakSession.id, {
+        restartNextArrival: !shouldAskToExtendBreak,
+      })
         .then(refresh)
         .then(() => {
           sendReminder("break-complete");
+          if (shouldAskToExtendBreak) {
+            setShowBreakCompletionPrompt(true);
+            setMessage(`休息结束，还有 ${formatMinutes(breakBalance)} 可用休息。`);
+            return;
+          }
+
           setMessage("休息结束，请选择下一轮番茄钟时间继续。");
         })
         .finally(() => {
           completingBreakRef.current = null;
         });
     }
-  }, [activeBreakSession, breakRemainingSeconds, refresh]);
+  }, [activeBreakSession, breakBalance, breakRemainingSeconds, refresh]);
 
   async function runAction(action: () => Promise<void>, successMessage?: string) {
     try {
@@ -280,6 +291,28 @@ export default function App() {
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "加载示例数据失败。");
+    }
+  }
+
+  async function handleExtendBreak(minutes: number) {
+    try {
+      await startBreakTimer(minutes);
+      await refresh();
+      setShowBreakCompletionPrompt(false);
+      setMessage(`已继续休息 ${minutes} 分钟。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "启动休息失败。");
+    }
+  }
+
+  async function handleStartLearningAfterBreak() {
+    try {
+      await checkInArrival();
+      await refresh();
+      setShowBreakCompletionPrompt(false);
+      setMessage("已开始记录下一轮启动延迟。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "开始学习失败。");
     }
   }
 
@@ -671,6 +704,14 @@ export default function App() {
                 : "复盘已保存，已开始记录下一轮启动延迟。",
             );
           }}
+        />
+      ) : null}
+
+      {showBreakCompletionPrompt && !activeBreakSession && breakBalance > 0 ? (
+        <BreakCompletionModal
+          breakBalance={breakBalance}
+          onExtendBreak={handleExtendBreak}
+          onStartLearning={handleStartLearningAfterBreak}
         />
       ) : null}
     </div>
@@ -1172,6 +1213,102 @@ function ReviewModal({
           <Save size={18} />
           保存复盘
         </button>
+      </form>
+    </div>
+  );
+}
+
+function BreakCompletionModal({
+  breakBalance,
+  onExtendBreak,
+  onStartLearning,
+}: {
+  breakBalance: number;
+  onExtendBreak: (minutes: number) => Promise<void>;
+  onStartLearning: () => Promise<void>;
+}) {
+  const maxMinutes = Math.max(0, Math.floor(breakBalance));
+  const defaultCustomMinutes = Math.min(5, Math.max(1, maxMinutes));
+  const [customMinutes, setCustomMinutes] = useState(defaultCustomMinutes);
+  const [error, setError] = useState("");
+  const canUseFiveMinutes = maxMinutes >= 5;
+
+  async function extendBreak(minutes: number) {
+    const normalizedMinutes = Math.round(minutes);
+    if (!Number.isFinite(normalizedMinutes) || normalizedMinutes <= 0) {
+      setError("休息分钟数必须大于 0。");
+      return;
+    }
+
+    if (normalizedMinutes > maxMinutes) {
+      setError("休息分钟数不能超过当前剩余休息余额。");
+      return;
+    }
+
+    setError("");
+    await onExtendBreak(normalizedMinutes);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form
+        className="review-modal break-completion-modal"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void extendBreak(customMinutes);
+        }}
+      >
+        <div className="panel-heading">
+          <div>
+            <h2>休息结束</h2>
+            <p>当前还有 {formatMinutes(maxMinutes)} 可用休息。</p>
+          </div>
+          <Clock size={24} />
+        </div>
+
+        {error ? <div className="form-error">{error}</div> : null}
+
+        <div className="break-extension-grid">
+          <button
+            className="secondary-button"
+            disabled={!canUseFiveMinutes}
+            type="button"
+            onClick={() => void extendBreak(5)}
+          >
+            继续休息 5 分钟
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void extendBreak(maxMinutes)}
+          >
+            使用全部 {formatMinutes(maxMinutes)}
+          </button>
+        </div>
+
+        <label>
+          自定义休息分钟
+          <input
+            max={maxMinutes}
+            min={1}
+            type="number"
+            value={customMinutes}
+            onChange={(event) => setCustomMinutes(Number(event.currentTarget.value))}
+          />
+        </label>
+
+        <div className="button-row two-actions">
+          <button className="secondary-button" type="submit">
+            自定义休息
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => void onStartLearning()}
+          >
+            开始学习
+          </button>
+        </div>
       </form>
     </div>
   );
