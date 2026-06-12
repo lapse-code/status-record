@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-06-12T12:00:00+09:00"));
+});
+
 const backupFixture = {
   format: "status-record.backup",
   formatVersion: 1,
@@ -604,20 +608,28 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "记录明细" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "日点阵" })).toBeVisible();
   await expect(
-    page.getByText(/2026-06-10 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+    page.getByText(
+      /2026-06-10( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
+    ),
   ).toBeVisible();
   await expect(page.getByText("专注 19")).toBeVisible();
   await page.getByRole("button", { name: "前一天" }).click();
   await expect(
-    page.getByText(/2026-06-09 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+    page.getByText(
+      /2026-06-09( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
+    ),
   ).toBeVisible();
   await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-03");
   await expect(
-    page.getByText(/2026-06-03 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+    page.getByText(
+      /2026-06-03( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
+    ),
   ).toBeVisible();
   await page.getByRole("button", { name: "后一天" }).click();
   await expect(
-    page.getByText(/2026-06-04 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
+    page.getByText(
+      /2026-06-04( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
+    ),
   ).toBeVisible();
 
   const productPanel = page.locator(".chart-panel").filter({ hasText: "产物标签" });

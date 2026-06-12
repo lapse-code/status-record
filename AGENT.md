@@ -42,6 +42,7 @@ This repository is for Status Record, a personal study/work tracking tool with a
 - Sleep is recorded once per date with editable `sleep_duration_minutes` and `energy_score`.
 - Breaks use both balance transactions and `break_sessions`; active break time should not be counted as procrastination for the next focus session.
 - Focus pauses are represented with `focus_segments`: pause closes the current focus segment and returns time to procrastination; resume opens a new segment in the same focus session.
+- Date-bound records store UTC timestamps plus `local_date` and IANA `time_zone`. New records use the current device time zone; legacy records without `time_zone` fall back to `Asia/Tokyo`. Historical daily and weekly timelines must use the record's own time zone, not the current device time zone.
 - Global data actions such as demo data, import, and export must remain reachable when the sidebar is hidden or collapsed. Current UI shows them in the sidebar on wide screens and in the workspace header area when the sidebar action area is hidden.
 - Statistics must be reproducible from source records; rollup tables, if added, are caches only.
 

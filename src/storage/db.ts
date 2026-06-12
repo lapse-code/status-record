@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import { createDefaultLabel, defaultLabelSeeds, defaultSettings } from "../defaults";
+import { fallbackTimeZone } from "../domain/time";
 import type {
   AppSettingRecord,
   ArrivalSessionRecord,
@@ -72,6 +73,43 @@ class StatusRecordDatabase extends Dexie {
       sleep_logs: "id,&local_date,deleted_at",
       app_settings: "key",
     });
+    this.version(4)
+      .stores({
+        labels: "id,type,is_default,is_active,sort_order,deleted_at",
+        arrival_sessions: "id,local_date,time_zone,arrived_at,left_at,deleted_at",
+        focus_sessions:
+          "id,arrival_session_id,local_date,time_zone,state,started_at,completed_at,canceled_at,deleted_at",
+        focus_segments:
+          "id,focus_session_id,local_date,time_zone,state,started_at,ended_at,deleted_at",
+        session_reviews:
+          "id,focus_session_id,status_label_id,created_at,deleted_at",
+        session_review_labels: "id,review_id,label_id,label_type,created_at",
+        break_bank_transactions:
+          "id,focus_session_id,local_date,time_zone,type,created_at",
+        break_sessions:
+          "id,focus_session_id,local_date,time_zone,state,started_at,completed_at,canceled_at",
+        sleep_logs: "id,&local_date,time_zone,deleted_at",
+        app_settings: "key",
+      })
+      .upgrade(async (transaction) => {
+        const addFallbackTimeZone = (record: { time_zone?: string }) => {
+          if (!record.time_zone) {
+            record.time_zone = fallbackTimeZone;
+          }
+        };
+
+        await Promise.all([
+          transaction.table("arrival_sessions").toCollection().modify(addFallbackTimeZone),
+          transaction.table("focus_sessions").toCollection().modify(addFallbackTimeZone),
+          transaction.table("focus_segments").toCollection().modify(addFallbackTimeZone),
+          transaction
+            .table("break_bank_transactions")
+            .toCollection()
+            .modify(addFallbackTimeZone),
+          transaction.table("break_sessions").toCollection().modify(addFallbackTimeZone),
+          transaction.table("sleep_logs").toCollection().modify(addFallbackTimeZone),
+        ]);
+      });
   }
 }
 

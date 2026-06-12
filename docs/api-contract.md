@@ -7,6 +7,7 @@ MVP 是本地优先网页应用，因此这里的 API 指内部 application serv
 ```ts
 type ISODateTime = string;
 type LocalDate = string; // YYYY-MM-DD
+type TimeZoneId = string; // IANA time zone, e.g. Asia/Tokyo
 type Id = string;
 
 // `blocker` 是内部兼容名称，用户界面显示为“不专注原因”。
@@ -69,6 +70,7 @@ interface FocusSegment {
   id: Id;
   focusSessionId: Id;
   localDate: LocalDate;
+  timeZone: TimeZoneId;
   startedAt: ISODateTime;
   endedAt?: ISODateTime;
   state: "running" | "completed" | "canceled";
@@ -123,6 +125,7 @@ interface BreakSession {
   id: Id;
   focusSessionId?: Id;
   localDate: LocalDate;
+  timeZone: TimeZoneId;
   plannedDurationMinutes: number;
   actualDurationMinutes?: number;
   startedAt: ISODateTime;
@@ -315,6 +318,7 @@ interface AnalyticsSummary {
 规则：
 
 - 统计必须基于已完成并已复盘的 focus sessions。
+- 统计日期使用记录保存的 `local_date`；不要用当前设备时区重新计算历史记录日期。
 - 睡眠统计按日期 join，不要求每个学习日都有睡眠记录。
 - 复盘明细必须保留状态、产物、不专注原因的标签 id 和名称，用于统计页按状态、产物或不专注原因筛选“记录明细”。
 - `blockerLabelCounts` 作为底层聚合会保留默认“无”，用于历史数据完整性；统计页“不专注原因”图表在展示层排除“无”，没有其他原因时显示“暂无不专注原因记录”。
@@ -344,14 +348,17 @@ interface DayTimelineCell {
 
 - 一天固定输出 288 个 cell。
 - 每 5 分钟一个点，源数据固定按一天 288 个 cell 输出。
+- 点阵按每条源记录自己的 `time_zone` 把 UTC 区间映射到目标 `LocalDate` 的本地分钟；同一目标日期中不同记录可以来自不同时区。
+- 旧数据缺少 `time_zone` 时使用 `Asia/Tokyo` 兼容。
 - UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
 - 每个 5 分钟 cell 内部先按 1 分钟粒度累计状态，再用多数分钟决定 cell 状态。
 - 如果同一个 cell 内多个状态分钟数打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在分钟数最多时才成为最终状态。
 - `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间，UI 显示为“拖延”。
 - `break` 来自 `break_sessions` 的实际休息时间，UI 显示为“休息”。
-- `focus` 来自已复盘且没有不专注原因/被打断的 focus session，UI 显示为“专注”。
-- `blocked` 来自有非“无”的不专注原因标签，或状态为“被打断/卡住”的 focus session，UI 显示为“不专注”。
-- UI 可以为任意 `LocalDate` 调用此函数；日期导航不限制历史范围。
+- `focus` 来自未取消 focus session 的有效专注片段，UI 显示为“专注”；运行中的 `focus_segments` 用 `now` 作为临时结束时间，但不能超过本轮计划专注时长预算；完成但未复盘的 session 先按专注显示。
+- `blocked` 只来自已复盘且有非“无”的不专注原因标签，或状态为“被打断/卡住”的 focus session，UI 显示为“不专注”。
+- 取消的 focus session 和 canceled focus segment 不进入点阵；如果到岗仍打开，取消后的时间继续由 arrival 区间显示为拖延。
+- UI 可以为任意 `LocalDate` 调用此函数；日期导航不限制历史范围。Today 页、统计页选中今天、周点阵包含今天时应传入当前 `now` 以实时刷新。
 
 ## UI Data Actions Contract
 
@@ -415,6 +422,7 @@ interface AppBackup {
 
 - 导出文件使用稳定备份格式，不再直接暴露 UI 内部的 camelCase `AppSnapshot`。
 - `tables` 使用数据库表名，方便未来映射到后端同步或 SQLite。
+- 备份包含各源记录的 `time_zone` 字段，确保换设备、旅行或未来迁移到账号同步后，历史时间线仍能按记录发生时区恢复。
 - `focus_segments` 保存暂停/继续后的真实专注片段；旧备份缺少该表时导入按空数组兼容。
 - 导出只读本地 IndexedDB，不修改任何数据。
 
@@ -433,6 +441,7 @@ interface ImportDataResult {
 - 导入只接受 JSON 对象。
 - 首选 `format = "status-record.backup"` 且 `formatVersion = 1` 的备份格式。
 - 兼容早期直接导出的 `AppSnapshot` 结构，导入结果中 `sourceFormat = "legacy_snapshot"`。
+- 导入旧备份或旧 snapshot 时，如果到岗、专注、分段、休息、睡眠记录缺少 `time_zone`，按 `Asia/Tokyo` 回填。
 - 导入前会检查每张表是数组，并检查主键字段：普通表需要 `id`，`app_settings` 需要 `key`。
 - 导入采用合并写入：同 `id` 更新，不同 `id` 新增；不会先清空本地数据。
 - 导入运行在 Dexie transaction 中；写入失败时应回滚本次导入。

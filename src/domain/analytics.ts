@@ -21,6 +21,13 @@ import type {
   SessionReviewRecord,
 } from "../types";
 import { computeStartupDelayForArrival } from "./startup-delay";
+import {
+  getLocalDateEndUtcMs,
+  getLocalDateStartUtcMs,
+  getLocalMinuteOfDay,
+  normalizeTimeZone,
+  toLocalDate,
+} from "./time";
 
 const dayTimelineSlotMinutes = 5;
 const dayTimelineHours = 24;
@@ -183,15 +190,14 @@ export function buildDayTimeline(
     };
   });
 
-  const reviewedFocusSessions = snapshot.focusSessions.filter(
+  const timelineFocusSessions = snapshot.focusSessions.filter(
     (session) =>
-      session.state === "reviewed" &&
-      !session.deleted_at &&
-      session.local_date === localDate,
+      session.state !== "canceled" &&
+      !session.deleted_at,
   );
-  const reviewedFocusIds = new Set(reviewedFocusSessions.map((session) => session.id));
+  const timelineFocusIds = new Set(timelineFocusSessions.map((session) => session.id));
   const reviews = snapshot.sessionReviews.filter(
-    (review) => reviewedFocusIds.has(review.focus_session_id) && !review.deleted_at,
+    (review) => timelineFocusIds.has(review.focus_session_id) && !review.deleted_at,
   );
   const reviewByFocusId = new Map(
     reviews.map((review) => [review.focus_session_id, review]),
@@ -203,7 +209,7 @@ export function buildDayTimeline(
   const labelById = new Map(snapshot.labels.map((label) => [label.id, label]));
 
   snapshot.arrivalSessions
-    .filter((arrival) => !arrival.deleted_at && arrival.local_date === localDate)
+    .filter((arrival) => !arrival.deleted_at)
     .forEach((arrival) => {
       markTimelineSegment(
         minuteStates,
@@ -211,14 +217,14 @@ export function buildDayTimeline(
         arrival.arrived_at,
         arrival.left_at ?? now.toISOString(),
         "startup_delay",
+        arrival.time_zone,
       );
     });
 
   snapshot.breakSessions
     .filter(
       (session) =>
-        session.state !== "canceled" &&
-        session.local_date === localDate,
+        session.state !== "canceled",
     )
     .forEach((session) => {
       const start = new Date(session.started_at);
@@ -238,20 +244,22 @@ export function buildDayTimeline(
         session.started_at,
         end,
         "break",
+        session.time_zone,
       );
     });
 
-  reviewedFocusSessions.forEach((session) => {
+  timelineFocusSessions.forEach((session) => {
     const review = reviewByFocusId.get(session.id);
-    const state = isBlockedFocusReview(review, reviewLabels, labelById)
-      ? "blocked"
-      : "focus";
+    const state =
+      session.state === "reviewed" &&
+      isBlockedFocusReview(review, reviewLabels, labelById)
+        ? "blocked"
+        : "focus";
     const segments = snapshot.focusSegments
       .filter(
         (segment) =>
           segment.focus_session_id === session.id &&
-          segment.state === "completed" &&
-          segment.ended_at &&
+          segment.state !== "canceled" &&
           !segment.deleted_at,
       )
       .sort(
@@ -260,27 +268,48 @@ export function buildDayTimeline(
       );
 
     if (segments.length > 0) {
+      let remainingFocusBudgetMs = getPlannedFocusBudgetMs(session);
+
       segments.forEach((segment) => {
+        const end = getTimelineFocusSegmentEnd(segment, now);
+        if (!end || remainingFocusBudgetMs <= 0) {
+          return;
+        }
+
+        const startMs = new Date(segment.started_at).getTime();
+        const endMs = new Date(end).getTime();
+        const cappedEndMs = Math.min(endMs, startMs + remainingFocusBudgetMs);
+        if (cappedEndMs <= startMs) {
+          return;
+        }
+
+        remainingFocusBudgetMs -= cappedEndMs - startMs;
+
         markTimelineSegment(
           minuteStates,
           localDate,
           segment.started_at,
-          segment.ended_at as string,
+          new Date(cappedEndMs).toISOString(),
           state,
+          segment.time_zone ?? session.time_zone,
         );
       });
       return;
     }
 
     const start = new Date(session.started_at);
-    const end = new Date(start);
-    end.setMinutes(start.getMinutes() + (session.actual_duration_minutes ?? 0));
+    const end = getTimelineFocusFallbackEnd(session, start, now);
+    if (!end) {
+      return;
+    }
+
     markTimelineSegment(
       minuteStates,
       localDate,
       session.started_at,
-      end.toISOString(),
+      end,
       state,
+      session.time_zone,
     );
   });
 
@@ -402,18 +431,32 @@ function markTimelineSegment(
   startIso: string,
   endIso: string,
   state: Exclude<DayTimelineCellState, "empty">,
+  timeZone = normalizeTimeZone(),
 ) {
-  const segment = clampSegmentToLocalDate(startIso, endIso, localDate);
-  if (!segment) {
+  const zone = normalizeTimeZone(timeZone);
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const dayStartMs = getLocalDateStartUtcMs(localDate, zone);
+  const dayEndMs = getLocalDateEndUtcMs(localDate, zone);
+  const startMs = Math.max(start.getTime(), dayStartMs);
+  const endMs = Math.min(end.getTime(), dayEndMs);
+
+  if (endMs <= startMs) {
     return;
   }
 
-  const endIndex = Math.min(
-    minuteStates.length,
-    segment.endMinute,
-  );
+  const firstMinuteMs = Math.floor(startMs / 60_000) * 60_000;
+  for (let ms = firstMinuteMs; ms < endMs; ms += 60_000) {
+    const minuteDate = new Date(ms);
+    if (toLocalDate(minuteDate, zone) !== localDate) {
+      continue;
+    }
 
-  for (let index = segment.startMinute; index < endIndex; index += 1) {
+    const index = getLocalMinuteOfDay(minuteDate, zone);
+    if (index < 0 || index >= minuteStates.length) {
+      continue;
+    }
+
     const currentState = minuteStates[index];
     if (!currentState || shouldKeepTimelineState(currentState, state)) {
       continue;
@@ -421,6 +464,52 @@ function markTimelineSegment(
 
     minuteStates[index] = state;
   }
+}
+
+function getTimelineFocusSegmentEnd(
+  segment: AppSnapshot["focusSegments"][number],
+  now: Date,
+): string | null {
+  if (segment.state === "completed") {
+    return segment.ended_at ?? null;
+  }
+
+  if (segment.state === "running") {
+    return now.toISOString();
+  }
+
+  return null;
+}
+
+function getTimelineFocusFallbackEnd(
+  session: FocusSessionRecord,
+  start: Date,
+  now: Date,
+): string | null {
+  if (session.state === "running") {
+    const plannedEnd = new Date(
+      start.getTime() +
+        getPlannedFocusBudgetMs(session) +
+        session.paused_total_seconds * 1_000,
+    );
+    return new Date(Math.min(now.getTime(), plannedEnd.getTime())).toISOString();
+  }
+
+  if (session.state === "paused") {
+    return session.current_pause_started_at ?? null;
+  }
+
+  if (typeof session.actual_duration_minutes === "number") {
+    const end = new Date(start);
+    end.setMinutes(start.getMinutes() + session.actual_duration_minutes);
+    return end.toISOString();
+  }
+
+  return session.completed_at ?? null;
+}
+
+function getPlannedFocusBudgetMs(session: FocusSessionRecord): number {
+  return Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000;
 }
 
 function applyMinuteStatesToTimelineCells(
@@ -465,30 +554,6 @@ function selectTimelineCellState(states: DayTimelineCellState[]) {
 
     return winner;
   }, "empty");
-}
-
-function clampSegmentToLocalDate(
-  startIso: string,
-  endIso: string,
-  localDate: LocalDate,
-): { startMinute: number; endMinute: number } | null {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  const dayStart = new Date(`${localDate}T00:00:00`);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayStart.getDate() + 1);
-
-  const startMs = Math.max(start.getTime(), dayStart.getTime());
-  const endMs = Math.min(end.getTime(), dayEnd.getTime());
-
-  if (endMs <= startMs) {
-    return null;
-  }
-
-  return {
-    startMinute: Math.floor((startMs - dayStart.getTime()) / 60_000),
-    endMinute: Math.ceil((endMs - dayStart.getTime()) / 60_000),
-  };
 }
 
 function shouldKeepTimelineState(

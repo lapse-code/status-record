@@ -1,6 +1,7 @@
 export type Id = string;
 export type ISODateTime = string;
 export type LocalDate = string;
+export type TimeZoneId = string;
 
 export type LabelType = "session_status" | "product" | "blocker";
 export type FocusSessionState =
@@ -35,6 +36,7 @@ export interface LabelRecord {
 export interface ArrivalSessionRecord {
   id: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   arrived_at: ISODateTime;
   left_at?: ISODateTime;
   note?: string;
@@ -47,6 +49,7 @@ export interface FocusSessionRecord {
   id: Id;
   arrival_session_id?: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   planned_duration_minutes: number;
   actual_duration_minutes?: number;
   started_at: ISODateTime;
@@ -65,6 +68,7 @@ export interface FocusSegmentRecord {
   id: Id;
   focus_session_id: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   started_at: ISODateTime;
   ended_at?: ISODateTime;
   state: "running" | "completed" | "canceled";
@@ -97,6 +101,7 @@ export interface BreakBankTransactionRecord {
   id: Id;
   focus_session_id?: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   type: BreakTransactionType;
   minutes: number;
   note?: string;
@@ -107,6 +112,7 @@ export interface BreakSessionRecord {
   id: Id;
   focus_session_id?: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   planned_duration_minutes: number;
   actual_duration_minutes?: number;
   started_at: ISODateTime;
@@ -121,6 +127,7 @@ export interface BreakSessionRecord {
 export interface SleepLogRecord {
   id: Id;
   local_date: LocalDate;
+  time_zone?: TimeZoneId;
   sleep_duration_minutes: number;
   energy_score: 1 | 2 | 3 | 4 | 5;
   note?: string;

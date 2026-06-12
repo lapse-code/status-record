@@ -13,7 +13,13 @@ import {
 } from "../domain/break-bank";
 import { calculateCompletedFocusMinutes } from "../domain/focus-session";
 import { createId } from "../domain/id";
-import { nowIso, secondsBetween, toLocalDate } from "../domain/time";
+import {
+  fallbackTimeZone,
+  getCurrentTimeZone,
+  nowIso,
+  secondsBetween,
+  toLocalDate,
+} from "../domain/time";
 import type {
   AppBackup,
   AppSnapshot,
@@ -76,11 +82,13 @@ export async function checkInArrival(): Promise<Id> {
   }
 
   const timestamp = nowIso();
+  const timeZone = getCurrentTimeZone();
   const id = createId("arrival");
 
   await db.arrival_sessions.add({
     id,
-    local_date: toLocalDate(new Date(timestamp)),
+    local_date: toLocalDate(new Date(timestamp), timeZone),
+    time_zone: timeZone,
     arrived_at: timestamp,
     created_at: timestamp,
     updated_at: timestamp,
@@ -112,13 +120,15 @@ export async function startFocusTimer(
   }
 
   const timestamp = nowIso();
-  const localDate = toLocalDate(new Date(timestamp));
+  const timeZone = getCurrentTimeZone();
+  const localDate = toLocalDate(new Date(timestamp), timeZone);
   const openArrival = await getOpenArrival();
   const arrivalSession =
     openArrival ??
     {
       id: createId("arrival"),
       local_date: localDate,
+      time_zone: timeZone,
       arrived_at: timestamp,
       note: "从开始番茄钟自动到岗",
       created_at: timestamp,
@@ -129,6 +139,7 @@ export async function startFocusTimer(
     id,
     arrival_session_id: arrivalSession.id,
     local_date: localDate,
+    time_zone: timeZone,
     planned_duration_minutes: Math.round(plannedDurationMinutes),
     started_at: timestamp,
     paused_total_seconds: 0,
@@ -141,6 +152,7 @@ export async function startFocusTimer(
     id: createId("focus-segment"),
     focus_session_id: id,
     local_date: localDate,
+    time_zone: timeZone,
     started_at: timestamp,
     state: "running",
     created_at: timestamp,
@@ -197,6 +209,7 @@ export async function resumeFocusTimer(focusSessionId: Id): Promise<void> {
       id: createId("focus-segment"),
       focus_session_id: focusSessionId,
       local_date: session.local_date,
+      time_zone: session.time_zone ?? getCurrentTimeZone(),
       started_at: timestamp,
       state: "running",
       created_at: timestamp,
@@ -304,7 +317,8 @@ export async function submitSessionReview(
   }
 
   const timestamp = nowIso();
-  const breakLocalDate = toLocalDate(new Date(timestamp));
+  const breakTimeZone = getCurrentTimeZone();
+  const breakLocalDate = toLocalDate(new Date(timestamp), breakTimeZone);
   const reviewId = createId("review");
   const balance = await getBreakBalance(breakLocalDate);
   const breakMinutesUsed =
@@ -369,6 +383,7 @@ export async function submitSessionReview(
           id: `break-used-${breakSessionId}`,
           focus_session_id: input.focusSessionId,
           local_date: breakLocalDate,
+          time_zone: breakTimeZone,
           type: "used",
           minutes: -breakMinutesUsed,
           note: "复盘时选择使用休息余额",
@@ -378,6 +393,7 @@ export async function submitSessionReview(
           id: breakSessionId,
           focus_session_id: input.focusSessionId,
           local_date: breakLocalDate,
+          time_zone: breakTimeZone,
           planned_duration_minutes: breakMinutesUsed,
           started_at: timestamp,
           state: "running",
@@ -433,6 +449,7 @@ export async function completeBreakTimer(
           id: `break-refund-${breakSessionId}`,
           focus_session_id: session.focus_session_id,
           local_date: session.local_date,
+          time_zone: session.time_zone ?? getCurrentTimeZone(),
           type: "adjustment",
           minutes: refundMinutes,
           note: "提前结束休息，退回未使用余额",
@@ -466,7 +483,8 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
   }
 
   const timestamp = nowIso();
-  const localDate = toLocalDate(new Date(timestamp));
+  const timeZone = getCurrentTimeZone();
+  const localDate = toLocalDate(new Date(timestamp), timeZone);
   const balance = await getBreakBalance(localDate);
   if (breakMinutes > balance) {
     throw new Error("使用的休息时间不能超过当前余额。");
@@ -483,6 +501,7 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
       await db.break_bank_transactions.add({
         id: `break-used-${breakSessionId}`,
         local_date: localDate,
+        time_zone: timeZone,
         type: "used",
         minutes: -breakMinutes,
         note: "延长休息使用休息余额",
@@ -491,6 +510,7 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
       await db.break_sessions.add({
         id: breakSessionId,
         local_date: localDate,
+        time_zone: timeZone,
         planned_duration_minutes: breakMinutes,
         started_at: timestamp,
         state: "running",
@@ -518,6 +538,7 @@ export async function upsertSleepLog(input: {
   }
 
   const timestamp = nowIso();
+  const timeZone = getCurrentTimeZone();
   const sleepDurationMinutes = Math.round(input.sleepDurationMinutes);
   const existing = await db.sleep_logs
     .where("local_date")
@@ -529,6 +550,7 @@ export async function upsertSleepLog(input: {
       sleep_duration_minutes: sleepDurationMinutes,
       energy_score: input.energyScore,
       note: input.note?.trim() || undefined,
+      time_zone: existing.time_zone ?? timeZone,
       updated_at: timestamp,
       deleted_at: undefined,
     });
@@ -538,6 +560,7 @@ export async function upsertSleepLog(input: {
   const record: SleepLogRecord = {
     id: createId("sleep"),
     local_date: input.localDate,
+    time_zone: timeZone,
     sleep_duration_minutes: sleepDurationMinutes,
     energy_score: input.energyScore,
     note: input.note?.trim() || undefined,
@@ -698,6 +721,7 @@ export async function seedDemoData(): Promise<{
         await db.arrival_sessions.put({
           id: arrivalId,
           local_date: day.date,
+          time_zone: fallbackTimeZone,
           arrived_at: toDemoIso(day.date, day.arrival, 0),
           left_at: toDemoIso(day.date, day.arrival, day.delay + 420),
           note: "Demo 到岗记录",
@@ -724,6 +748,7 @@ export async function seedDemoData(): Promise<{
             id: focusId,
             arrival_session_id: arrivalId,
             local_date: day.date,
+            time_zone: fallbackTimeZone,
             planned_duration_minutes: session.minutes,
             actual_duration_minutes: session.minutes,
             started_at: startedAt,
@@ -738,6 +763,7 @@ export async function seedDemoData(): Promise<{
             id: `demo-focus-segment-${day.date}-${index + 1}`,
             focus_session_id: focusId,
             local_date: day.date,
+            time_zone: fallbackTimeZone,
             started_at: startedAt,
             ended_at: completedAt,
             state: "completed",
@@ -787,6 +813,7 @@ export async function seedDemoData(): Promise<{
           await db.break_bank_transactions.put({
             id: `demo-break-used-${day.date}`,
             local_date: day.date,
+            time_zone: fallbackTimeZone,
             type: "used",
             minutes: -day.breakUsed,
             note: "Demo 使用休息余额",
@@ -803,6 +830,7 @@ export async function seedDemoData(): Promise<{
           await db.sleep_logs.put({
             id: `demo-sleep-${day.date}`,
             local_date: day.date,
+            time_zone: fallbackTimeZone,
             sleep_duration_minutes: day.sleep,
             energy_score: day.energy,
             note: "Demo 睡眠记录",
@@ -880,9 +908,11 @@ async function restartArrivalForNextFocus(
   note: string,
 ): Promise<void> {
   await closeCurrentArrival(timestamp);
+  const timeZone = getCurrentTimeZone();
   await db.arrival_sessions.add({
     id: createId("arrival"),
-    local_date: toLocalDate(new Date(timestamp)),
+    local_date: toLocalDate(new Date(timestamp), timeZone),
+    time_zone: timeZone,
     arrived_at: timestamp,
     note,
     created_at: timestamp,
@@ -913,6 +943,7 @@ async function closeRunningFocusSegment(
     id: createId("focus-segment"),
     focus_session_id: session.id,
     local_date: session.local_date,
+    time_zone: session.time_zone ?? getCurrentTimeZone(),
     started_at: session.started_at,
     ended_at: timestamp,
     state: "completed",
@@ -948,6 +979,7 @@ async function ensureCompletedFocusSegmentFallback(
     id: createId("focus-segment"),
     focus_session_id: session.id,
     local_date: session.local_date,
+    time_zone: session.time_zone ?? getCurrentTimeZone(),
     started_at: session.started_at,
     ended_at: fallbackEnd,
     state: "completed",

@@ -48,6 +48,7 @@ import {
   labelNameById,
 } from "./domain/labels";
 import {
+  fallbackTimeZone,
   formatMinutes,
   formatTimer,
   secondsBetween,
@@ -204,7 +205,11 @@ export default function App() {
   );
   const [todayTimelineDate, setTodayTimelineDate] = useState(toLocalDate());
   const todayTimeline = useMemo(
-    () => buildDayTimeline(snapshot, todayTimelineDate),
+    () => buildDayTimeline(snapshot, todayTimelineDate, now),
+    [now, snapshot, todayTimelineDate],
+  );
+  const todayTimelineTimeZoneLabel = useMemo(
+    () => getTimelineTimeZoneLabel(snapshot, todayTimelineDate),
     [snapshot, todayTimelineDate],
   );
   const remainingSeconds = activeFocusSession
@@ -725,6 +730,7 @@ export default function App() {
             <DayTimelinePanel
               cells={todayTimeline}
               date={todayTimelineDate}
+              timeZoneLabel={todayTimelineTimeZoneLabel}
               onDateChange={(date) => setTodayTimelineDate(date || toLocalDate())}
               onNextDate={() =>
                 setTodayTimelineDate((date) => shiftLocalDate(date, 1))
@@ -739,9 +745,13 @@ export default function App() {
           </main>
         ) : null}
 
-        {activeTab === "analytics" ? <AnalyticsView snapshot={snapshot} /> : null}
+        {activeTab === "analytics" ? (
+          <AnalyticsView snapshot={snapshot} now={now} />
+        ) : null}
 
-        {activeTab === "week" ? <WeekTimelineView snapshot={snapshot} /> : null}
+        {activeTab === "week" ? (
+          <WeekTimelineView snapshot={snapshot} now={now} />
+        ) : null}
 
         {activeTab === "labels" ? (
           <LabelsView snapshot={snapshot} onChanged={refresh} onMessage={setMessage} />
@@ -1373,7 +1383,13 @@ function BreakCompletionModal({
   );
 }
 
-function WeekTimelineView({ snapshot }: { snapshot: AppSnapshot }) {
+function WeekTimelineView({
+  snapshot,
+  now,
+}: {
+  snapshot: AppSnapshot;
+  now: Date;
+}) {
   const [anchorDate, setAnchorDate] = useState(toLocalDate());
   const weekDates = useMemo(() => getWeekDates(anchorDate), [anchorDate]);
   const weekStart = weekDates[0] ?? anchorDate;
@@ -1382,9 +1398,10 @@ function WeekTimelineView({ snapshot }: { snapshot: AppSnapshot }) {
     () =>
       weekDates.map((date) => ({
         date,
-        cells: buildDayTimeline(snapshot, date),
+        cells: buildDayTimeline(snapshot, date, now),
+        timeZoneLabel: getTimelineTimeZoneLabel(snapshot, date),
       })),
-    [snapshot, weekDates],
+    [now, snapshot, weekDates],
   );
 
   return (
@@ -1451,9 +1468,11 @@ function WeekTimelineView({ snapshot }: { snapshot: AppSnapshot }) {
 function WeekTimelineDay({
   cells,
   date,
+  timeZoneLabel,
 }: {
   cells: DayTimelineCell[];
   date: string;
+  timeZoneLabel: string | null;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
   const { columns, mode } = getTimelineLayout(cells, panelWidth, 720);
@@ -1475,6 +1494,7 @@ function WeekTimelineDay({
           <p>
             每点 5 分钟 · 每列
             {mode === "half-hour" ? " 30 分钟" : " 1 小时"}
+            {timeZoneLabel ? ` · ${timeZoneLabel}` : ""}
           </p>
         </div>
         <TimelineLegend counts={counts} />
@@ -1484,7 +1504,13 @@ function WeekTimelineDay({
   );
 }
 
-function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
+function AnalyticsView({
+  snapshot,
+  now,
+}: {
+  snapshot: AppSnapshot;
+  now: Date;
+}) {
   const [grain, setGrain] = useState<AnalyticsGrain>("week");
   const [detailFilter, setDetailFilter] = useState<DetailFilter>(null);
   const [selectedTimelineDate, setSelectedTimelineDate] = useState<string | null>(
@@ -1502,7 +1528,11 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
     ? selectedTimelineDate
     : suggestedTimelineDate;
   const dayTimeline = useMemo(
-    () => buildDayTimeline(snapshot, timelineDate),
+    () => buildDayTimeline(snapshot, timelineDate, now),
+    [now, snapshot, timelineDate],
+  );
+  const dayTimelineTimeZoneLabel = useMemo(
+    () => getTimelineTimeZoneLabel(snapshot, timelineDate),
     [snapshot, timelineDate],
   );
   const statusData = buildCountData(summary.statusCounts, snapshot.labels);
@@ -1595,6 +1625,7 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
       <DayTimelinePanel
         cells={dayTimeline}
         date={timelineDate}
+        timeZoneLabel={dayTimelineTimeZoneLabel}
         onDateChange={(date) => setSelectedTimelineDate(date)}
         onNextDate={() =>
           setSelectedTimelineDate((date) => shiftLocalDate(date || timelineDate, 1))
@@ -1751,6 +1782,7 @@ function matchesDetailFilter(
 function DayTimelinePanel({
   cells,
   date,
+  timeZoneLabel,
   onDateChange,
   onNextDate,
   onPreviousDate,
@@ -1758,6 +1790,7 @@ function DayTimelinePanel({
 }: {
   cells: DayTimelineCell[];
   date: string;
+  timeZoneLabel: string | null;
   onDateChange: (date: string | null) => void;
   onNextDate: () => void;
   onPreviousDate: () => void;
@@ -1776,7 +1809,8 @@ function DayTimelinePanel({
         <div>
           <h3>日点阵</h3>
           <p>
-            {date} · 每点 5 分钟 · 每列
+            {date}
+            {timeZoneLabel ? ` · ${timeZoneLabel}` : ""} · 每点 5 分钟 · 每列
             {mode === "half-hour" ? " 30 分钟" : " 1 小时"}
           </p>
         </div>
@@ -2310,6 +2344,33 @@ function getTimelineDate(
     .sort((a, b) => b.localeCompare(a));
 
   return dates[0] ?? range.endDate;
+}
+
+function getTimelineTimeZoneLabel(
+  snapshot: AppSnapshot,
+  localDate: string,
+): string | null {
+  const zones = new Set<string>();
+
+  snapshot.arrivalSessions
+    .filter((arrival) => arrival.local_date === localDate && !arrival.deleted_at)
+    .forEach((arrival) => zones.add(arrival.time_zone ?? fallbackTimeZone));
+  snapshot.focusSessions
+    .filter((session) => session.local_date === localDate && !session.deleted_at)
+    .forEach((session) => zones.add(session.time_zone ?? fallbackTimeZone));
+  snapshot.breakSessions
+    .filter((session) => session.local_date === localDate && session.state !== "canceled")
+    .forEach((session) => zones.add(session.time_zone ?? fallbackTimeZone));
+
+  if (zones.size === 0) {
+    return null;
+  }
+
+  if (zones.size === 1) {
+    return `时区 ${Array.from(zones)[0]}`;
+  }
+
+  return `多时区 ${zones.size} 个`;
 }
 
 function shiftLocalDate(date: string, dayDelta: number): string {

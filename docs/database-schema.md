@@ -6,7 +6,9 @@
 
 - 主键统一为 `id`，字符串 UUID。
 - 时间戳统一为 ISO UTC string。
-- 日期字段为本地日期字符串 `YYYY-MM-DD`。
+- 日期字段为记录发生时区下的本地日期字符串 `YYYY-MM-DD`。
+- 参与按天归属的记录保存 IANA `time_zone`，例如 `Asia/Tokyo`、`America/Los_Angeles`。
+- 旧数据或旧备份缺少 `time_zone` 时按 `Asia/Tokyo` 兼容回填。
 - 时长字段明确单位，例如 `_minutes`、`_seconds`。
 - 删除优先使用软删除字段 `deleted_at`。
 
@@ -41,6 +43,7 @@
 | --- | --- | --- |
 | id | string | 主键 |
 | local_date | string | 到岗所在本地日期 |
+| time_zone | string | 到岗发生时区 |
 | arrived_at | datetime | 到岗时间 |
 | left_at | datetime nullable | 离开时间 |
 | note | text nullable | 备注 |
@@ -62,6 +65,7 @@
 | id | string | 主键 |
 | arrival_session_id | string nullable | 关联到岗记录 |
 | local_date | string | 开始时所在本地日期 |
+| time_zone | string | 开始时所在时区 |
 | planned_duration_minutes | number | 计划时长 |
 | actual_duration_minutes | number nullable | 实际完成时长 |
 | started_at | datetime | 开始时间 |
@@ -90,6 +94,7 @@
 | id | string | 主键 |
 | focus_session_id | string | 关联 focus session |
 | local_date | string | 片段开始时所在本地日期 |
+| time_zone | string | 片段开始时所在时区 |
 | started_at | datetime | 片段开始时间 |
 | ended_at | datetime nullable | 片段结束时间 |
 | state | string | `running`、`completed`、`canceled` |
@@ -154,6 +159,7 @@
 | id | string | 主键 |
 | focus_session_id | string nullable | 来源 focus session |
 | local_date | string | 本地日期 |
+| time_zone | string | 交易发生时区 |
 | type | string | `earned`、`used`、`adjustment`。`earned` 只作为旧备份兼容 |
 | minutes | number | 正数表示增加，负数表示减少 |
 | note | text nullable | 备注 |
@@ -176,6 +182,7 @@
 | id | string | 主键 |
 | focus_session_id | string nullable | 来源 focus session |
 | local_date | string | 本地日期 |
+| time_zone | string | 休息发生时区 |
 | planned_duration_minutes | number | 计划休息时长 |
 | actual_duration_minutes | number nullable | 实际使用休息分钟 |
 | started_at | datetime | 休息开始时间 |
@@ -200,6 +207,7 @@
 | --- | --- | --- |
 | id | string | 主键 |
 | local_date | string | 日期，唯一 |
+| time_zone | string | 记录归属时区 |
 | sleep_duration_minutes | number | 睡眠时长 |
 | energy_score | number | 主观精力 1-5 |
 | note | text nullable | 备注 |
@@ -234,13 +242,16 @@
 }
 ```
 
+说明：`allowBreakCarryOver` 是早期设置字段，当前每日学习累计账本不再读取它；实际产品规则是休息余额和未满 25 分钟进度都不跨天。该字段保留只是为了兼容已写入的本地设置。
+
 ## 可选缓存：daily_rollups
 
-后续数据量变大后可以添加，不作为 MVP 必需表。当前 Dexie schema 已到 version 3，version 3 增加 `focus_segments`。
+后续数据量变大后可以添加，不作为 MVP 必需表。当前 Dexie schema 已到 version 4，version 4 为按天源记录增加 `time_zone` 索引和旧数据回填。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | local_date | string | 日期，主键 |
+| time_zone | string | 聚合归属时区，可选 |
 | focus_minutes | number | 当日专注分钟 |
 | startup_delay_minutes | number | 当日拖延分钟，内部仍沿用 startup delay 字段名 |
 | attention_switch_count | number | 当日注意力切换 |
@@ -251,3 +262,4 @@
 规则：
 
 - 任何时候都必须能从源表重算。
+- 如果未来做 rollup，需要明确它是“某日期 + 某时区”的缓存，不能用当前设备时区重新解释旧记录。

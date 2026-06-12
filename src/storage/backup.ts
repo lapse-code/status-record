@@ -4,6 +4,7 @@ import type {
   BackupTables,
   ImportDataResult,
 } from "../types";
+import { fallbackTimeZone } from "../domain/time";
 
 const backupFormat = "status-record.backup";
 const backupFormatVersion = 1;
@@ -39,13 +40,15 @@ export function parseBackupPayload(payload: unknown): ParsedBackupPayload {
     }
 
     return {
-      snapshot: tablesToSnapshot(validateBackupTables(payload.tables)),
+      snapshot: addFallbackTimeZones(
+        tablesToSnapshot(validateBackupTables(payload.tables)),
+      ),
       sourceFormat: "backup_v1",
     };
   }
 
   return {
-    snapshot: validateLegacySnapshot(payload),
+    snapshot: addFallbackTimeZones(validateLegacySnapshot(payload)),
     sourceFormat: "legacy_snapshot",
   };
 }
@@ -122,6 +125,26 @@ function validateLegacySnapshot(value: object): AppSnapshot {
     breakSessions: readRecords(value, "breakSessions", "id"),
     sleepLogs: readRecords(value, "sleepLogs", "id"),
     appSettings: readRecords(value, "appSettings", "key"),
+  };
+}
+
+function addFallbackTimeZones(snapshot: AppSnapshot): AppSnapshot {
+  return {
+    ...snapshot,
+    arrivalSessions: snapshot.arrivalSessions.map(withFallbackTimeZone),
+    focusSessions: snapshot.focusSessions.map(withFallbackTimeZone),
+    focusSegments: snapshot.focusSegments.map(withFallbackTimeZone),
+    breakBankTransactions:
+      snapshot.breakBankTransactions.map(withFallbackTimeZone),
+    breakSessions: snapshot.breakSessions.map(withFallbackTimeZone),
+    sleepLogs: snapshot.sleepLogs.map(withFallbackTimeZone),
+  };
+}
+
+function withFallbackTimeZone<T extends { time_zone?: string }>(record: T): T {
+  return {
+    ...record,
+    time_zone: record.time_zone ?? fallbackTimeZone,
   };
 }
 

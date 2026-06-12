@@ -9,7 +9,7 @@
 - 本地存储：IndexedDB，通过 Dexie 封装。
 - 图表：Recharts。
 - 图标：lucide-react。
-- 日期计算：date-fns。
+- 日期计算：date-fns + `Intl.DateTimeFormat` 时区转换。
 - 测试：Vitest + Playwright。
 
 这些选择都不阻碍后续迁移：
@@ -84,8 +84,10 @@ stateDiagram-v2
 ## 时间处理原则
 
 - 数据库存 UTC 时间戳。
-- UI 按用户本地时区展示。
-- 统计日期按用户当前本地日期切分。
+- 参与按天归属的源记录同时保存 `local_date` 和 IANA `time_zone`，例如 `Asia/Tokyo`、`America/Los_Angeles`。
+- 新记录默认使用当前设备时区；旧数据或旧备份缺少 `time_zone` 时回填为 `Asia/Tokyo`。
+- 历史日点阵和周点阵按记录发生时区把 UTC 区间映射回本地分钟，不按用户当前设备时区重新解释，避免旅行后历史时间线漂移。
+- Today 页的新记录会跟随当前设备时区；如果同一日期内出现多个记录时区，点阵标题显示“多时区”提示。
 - duration 类字段统一用分钟或秒，字段名必须明确，例如 `duration_minutes`。
 - 拖延是派生值，内部字段仍可称 `startup_delay`；可存缓存，但必须能从 `arrival_sessions.arrived_at` 和 `focus_sessions.started_at` 重新计算。
 
