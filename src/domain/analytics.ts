@@ -25,6 +25,14 @@ import { computeStartupDelayForArrival } from "./startup-delay";
 const dayTimelineSlotMinutes = 5;
 const dayTimelineHours = 24;
 const dayTimelineSlotsPerHour = 60 / dayTimelineSlotMinutes;
+const dayTimelineMinutes = dayTimelineHours * 60;
+const timelineStates = ["empty", "startup_delay", "focus", "blocked"] as const;
+const timelineStatePriority: Record<DayTimelineCellState, number> = {
+  empty: 0,
+  startup_delay: 1,
+  focus: 2,
+  blocked: 3,
+};
 
 export function getAnalyticsRange(
   grain: AnalyticsGrain,
@@ -147,7 +155,9 @@ export function buildDayTimeline(
   snapshot: AppSnapshot,
   localDate: LocalDate,
 ): DayTimelineCell[] {
-  const cells = Array.from({ length: dayTimelineHours * dayTimelineSlotsPerHour }, (_, index) => {
+  const minuteStates: DayTimelineCellState[] =
+    Array<DayTimelineCellState>(dayTimelineMinutes).fill("empty");
+  const cells: DayTimelineCell[] = Array.from({ length: dayTimelineHours * dayTimelineSlotsPerHour }, (_, index) => {
     const hour = Math.floor(index / dayTimelineSlotsPerHour);
     const slot = index % dayTimelineSlotsPerHour;
     const minuteOfDay = hour * 60 + slot * dayTimelineSlotMinutes;
@@ -199,7 +209,7 @@ export function buildDayTimeline(
       }
 
       markTimelineSegment(
-        cells,
+        minuteStates,
         localDate,
         arrival.arrived_at,
         firstFocus.started_at,
@@ -216,8 +226,16 @@ export function buildDayTimeline(
     const end = new Date(start);
     end.setMinutes(start.getMinutes() + (session.actual_duration_minutes ?? 0));
 
-    markTimelineSegment(cells, localDate, session.started_at, end.toISOString(), state);
+    markTimelineSegment(
+      minuteStates,
+      localDate,
+      session.started_at,
+      end.toISOString(),
+      state,
+    );
   });
+
+  applyMinuteStatesToTimelineCells(cells, minuteStates);
 
   return cells;
 }
@@ -330,7 +348,7 @@ function isDateInRange(date: LocalDate, range: AnalyticsRange): boolean {
 }
 
 function markTimelineSegment(
-  cells: DayTimelineCell[],
+  minuteStates: DayTimelineCellState[],
   localDate: LocalDate,
   startIso: string,
   endIso: string,
@@ -341,24 +359,62 @@ function markTimelineSegment(
     return;
   }
 
-  const startIndex = Math.max(
-    0,
-    Math.floor(segment.startMinute / dayTimelineSlotMinutes),
-  );
   const endIndex = Math.min(
-    cells.length,
-    Math.ceil(segment.endMinute / dayTimelineSlotMinutes),
+    minuteStates.length,
+    segment.endMinute,
   );
 
-  for (let index = startIndex; index < endIndex; index += 1) {
-    const current = cells[index];
-    if (!current || shouldKeepTimelineState(current.state, state)) {
+  for (let index = segment.startMinute; index < endIndex; index += 1) {
+    const currentState = minuteStates[index];
+    if (!currentState || shouldKeepTimelineState(currentState, state)) {
       continue;
     }
 
-    current.state = state;
-    current.title = `${current.timeLabel} ${timelineStateLabel(state)}`;
+    minuteStates[index] = state;
   }
+}
+
+function applyMinuteStatesToTimelineCells(
+  cells: DayTimelineCell[],
+  minuteStates: DayTimelineCellState[],
+) {
+  cells.forEach((cell) => {
+    const statesInCell = minuteStates.slice(
+      cell.minuteOfDay,
+      cell.minuteOfDay + dayTimelineSlotMinutes,
+    );
+    const state = selectTimelineCellState(statesInCell);
+    cell.state = state;
+    cell.title = `${cell.timeLabel} ${timelineStateLabel(state)}`;
+  });
+}
+
+function selectTimelineCellState(states: DayTimelineCellState[]) {
+  const counts: Record<DayTimelineCellState, number> = {
+    empty: 0,
+    startup_delay: 0,
+    focus: 0,
+    blocked: 0,
+  };
+
+  states.forEach((state) => {
+    counts[state] += 1;
+  });
+
+  return timelineStates.reduce<DayTimelineCellState>((winner, state) => {
+    if (counts[state] > counts[winner]) {
+      return state;
+    }
+
+    if (
+      counts[state] === counts[winner] &&
+      timelineStatePriority[state] > timelineStatePriority[winner]
+    ) {
+      return state;
+    }
+
+    return winner;
+  }, "empty");
 }
 
 function clampSegmentToLocalDate(
@@ -389,14 +445,7 @@ function shouldKeepTimelineState(
   currentState: DayTimelineCellState,
   nextState: Exclude<DayTimelineCellState, "empty">,
 ): boolean {
-  const priority: Record<DayTimelineCellState, number> = {
-    empty: 0,
-    startup_delay: 1,
-    focus: 2,
-    blocked: 3,
-  };
-
-  return priority[currentState] > priority[nextState];
+  return timelineStatePriority[currentState] > timelineStatePriority[nextState];
 }
 
 function isBlockedFocusReview(

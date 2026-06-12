@@ -287,7 +287,7 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(
     page.getByText(/2026-06-10 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
   ).toBeVisible();
-  await expect(page.getByText("学习 22")).toBeVisible();
+  await expect(page.getByText("学习 19")).toBeVisible();
   await page.getByRole("button", { name: "前一天" }).click();
   await expect(
     page.getByText(/2026-06-09 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
