@@ -13,7 +13,7 @@
 | Analytics | 日/周/月统计 | 从原始记录计算学习时长、延迟、标签分布和日点阵 |
 | Settings | 默认时长、标签配置、数据导出/导入 | 第一版只做必要设置 |
 | Storage | 本地持久化、迁移、备份导出/导入 | 保持逻辑 schema 可迁移到 SQLite |
-| Notification | 倒计时结束提醒 | Web 通知可选；先保证页面内提醒 |
+| Notification | 倒计时结束提醒 | 番茄钟结束和休息结束触发浏览器通知、默认提示音和页面内提示 |
 
 ## 当前实现状态
 
@@ -28,7 +28,7 @@
 | Analytics | 已实现 | `src/domain/analytics.ts`、`AnalyticsView` |
 | Settings | 部分实现 | JSON 导出/导入、标签管理 |
 | Storage | 已实现 | `src/storage/db.ts`、`src/storage/backup.ts` |
-| Notification | 页面内提示已实现 | `notice` 状态 |
+| Notification | 已实现 | `src/reminders.ts`、`notice` 状态 |
 | Demo Data | 已实现 | 右上角“示例数据”按钮、`src/demo-data.ts` |
 
 ## 当前统计交互

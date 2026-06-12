@@ -70,6 +70,7 @@ import {
   updateLabel,
   upsertSleepLog,
 } from "./services/app-service";
+import { primeReminderChannel, sendReminder } from "./reminders";
 import type {
   AnalyticsGrain,
   AnalyticsSummary,
@@ -181,6 +182,7 @@ export default function App() {
       completeFocusTimer(activeFocusSession.id)
         .then(refresh)
         .then(() => {
+          sendReminder("focus-complete");
           setMessage("本轮倒计时结束，请完成复盘。");
         })
         .finally(() => {
@@ -199,6 +201,7 @@ export default function App() {
       completeBreakTimer(activeBreakSession.id)
         .then(refresh)
         .then(() => {
+          sendReminder("break-complete");
           setMessage("休息结束，请选择下一轮番茄钟时间继续。");
         })
         .finally(() => {
@@ -221,6 +224,7 @@ export default function App() {
 
   async function handleStart(minutes: number) {
     const hasOpenArrival = Boolean(openArrival);
+    void primeReminderChannel();
     await runAction(async () => {
       await startFocusTimer(minutes);
     }, hasOpenArrival ? `已开始 ${minutes} 分钟专注。` : `已自动到岗并开始 ${minutes} 分钟专注。`);
@@ -659,6 +663,7 @@ export default function App() {
           labels={snapshot.labels}
           breakBalance={breakBalance}
           onSubmit={async (input) => {
+            void primeReminderChannel();
             await runAction(
               () => submitSessionReview(input),
               input.breakChoice === "use_now"
