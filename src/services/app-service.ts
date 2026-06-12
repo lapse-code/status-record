@@ -6,8 +6,9 @@ import {
 } from "../storage/backup";
 import { demoDays } from "../demo-data";
 import {
-  calculateBreakBalance,
-  calculateEarnedBreakMinutes,
+  calculateDailyBreakLedger,
+  calculateDailyFocusCreditMinutes,
+  calculateNewlyEarnedBreakMinutes,
   calculateUsedBreakMinutes,
 } from "../domain/break-bank";
 import { calculateCompletedFocusMinutes } from "../domain/focus-session";
@@ -17,6 +18,7 @@ import type {
   AppBackup,
   AppSnapshot,
   BreakSessionRecord,
+  FocusSegmentRecord,
   FocusSessionRecord,
   Id,
   ImportDataResult,
@@ -33,6 +35,7 @@ export async function loadSnapshot(): Promise<AppSnapshot> {
     labels,
     arrivalSessions,
     focusSessions,
+    focusSegments,
     sessionReviews,
     sessionReviewLabels,
     breakBankTransactions,
@@ -43,6 +46,7 @@ export async function loadSnapshot(): Promise<AppSnapshot> {
     db.labels.toArray(),
     db.arrival_sessions.toArray(),
     db.focus_sessions.toArray(),
+    db.focus_segments.toArray(),
     db.session_reviews.toArray(),
     db.session_review_labels.toArray(),
     db.break_bank_transactions.toArray(),
@@ -55,6 +59,7 @@ export async function loadSnapshot(): Promise<AppSnapshot> {
     labels,
     arrivalSessions,
     focusSessions,
+    focusSegments,
     sessionReviews,
     sessionReviewLabels,
     breakBankTransactions,
@@ -86,10 +91,7 @@ export async function checkInArrival(): Promise<Id> {
 
 export async function checkOutArrival(arrivalSessionId: Id): Promise<void> {
   const timestamp = nowIso();
-  await db.arrival_sessions.update(arrivalSessionId, {
-    left_at: timestamp,
-    updated_at: timestamp,
-  });
+  await closeOpenArrivals(timestamp, arrivalSessionId);
 }
 
 export async function startFocusTimer(
@@ -135,13 +137,29 @@ export async function startFocusTimer(
     created_at: timestamp,
     updated_at: timestamp,
   };
+  const segment: FocusSegmentRecord = {
+    id: createId("focus-segment"),
+    focus_session_id: id,
+    local_date: localDate,
+    started_at: timestamp,
+    state: "running",
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
 
-  await db.transaction("rw", db.arrival_sessions, db.focus_sessions, async () => {
-    if (!openArrival) {
-      await db.arrival_sessions.add(arrivalSession);
-    }
-    await db.focus_sessions.add(session);
-  });
+  await db.transaction(
+    "rw",
+    db.arrival_sessions,
+    db.focus_sessions,
+    db.focus_segments,
+    async () => {
+      if (!openArrival) {
+        await db.arrival_sessions.add(arrivalSession);
+      }
+      await db.focus_sessions.add(session);
+      await db.focus_segments.add(segment);
+    },
+  );
 
   return id;
 }
@@ -153,10 +171,13 @@ export async function pauseFocusTimer(focusSessionId: Id): Promise<void> {
   }
 
   const timestamp = nowIso();
-  await db.focus_sessions.update(focusSessionId, {
-    state: "paused",
-    current_pause_started_at: timestamp,
-    updated_at: timestamp,
+  await db.transaction("rw", db.focus_sessions, db.focus_segments, async () => {
+    await closeRunningFocusSegment(session, timestamp);
+    await db.focus_sessions.update(focusSessionId, {
+      state: "paused",
+      current_pause_started_at: timestamp,
+      updated_at: timestamp,
+    });
   });
 }
 
@@ -171,11 +192,22 @@ export async function resumeFocusTimer(focusSessionId: Id): Promise<void> {
     ? secondsBetween(session.current_pause_started_at, timestamp)
     : 0;
 
-  await db.focus_sessions.update(focusSessionId, {
-    state: "running",
-    paused_total_seconds: session.paused_total_seconds + addedPauseSeconds,
-    current_pause_started_at: undefined,
-    updated_at: timestamp,
+  await db.transaction("rw", db.focus_sessions, db.focus_segments, async () => {
+    await db.focus_segments.add({
+      id: createId("focus-segment"),
+      focus_session_id: focusSessionId,
+      local_date: session.local_date,
+      started_at: timestamp,
+      state: "running",
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    await db.focus_sessions.update(focusSessionId, {
+      state: "running",
+      paused_total_seconds: session.paused_total_seconds + addedPauseSeconds,
+      current_pause_started_at: undefined,
+      updated_at: timestamp,
+    });
   });
 }
 
@@ -186,11 +218,27 @@ export async function cancelFocusTimer(focusSessionId: Id): Promise<void> {
   }
 
   const timestamp = nowIso();
-  await db.focus_sessions.update(focusSessionId, {
-    state: "canceled",
-    canceled_at: timestamp,
-    current_pause_started_at: undefined,
-    updated_at: timestamp,
+  await db.transaction("rw", db.focus_sessions, db.focus_segments, async () => {
+    const segments = await db.focus_segments
+      .where("focus_session_id")
+      .equals(focusSessionId)
+      .toArray();
+
+    await Promise.all(
+      segments.map((segment) =>
+        db.focus_segments.update(segment.id, {
+          state: "canceled",
+          ended_at: segment.ended_at ?? timestamp,
+          updated_at: timestamp,
+        }),
+      ),
+    );
+    await db.focus_sessions.update(focusSessionId, {
+      state: "canceled",
+      canceled_at: timestamp,
+      current_pause_started_at: undefined,
+      updated_at: timestamp,
+    });
   });
 }
 
@@ -207,30 +255,40 @@ export async function completeFocusTimer(focusSessionId: Id): Promise<void> {
 
   const timestamp = nowIso();
   const actualDurationMinutes = calculateCompletedFocusMinutes(session, timestamp);
-  const earnedBreakMinutes = calculateEarnedBreakMinutes(actualDurationMinutes);
+  const previousFocusCreditMinutes = await getDailyFocusCreditMinutes(
+    session.local_date,
+    focusSessionId,
+  );
+  const earnedBreakMinutes = calculateNewlyEarnedBreakMinutes(
+    previousFocusCreditMinutes,
+    actualDurationMinutes,
+  );
 
-  await db.transaction("rw", db.focus_sessions, db.break_bank_transactions, async () => {
-    await db.focus_sessions.update(focusSessionId, {
-      state: "completed",
-      actual_duration_minutes: actualDurationMinutes,
-      completed_at: timestamp,
-      current_pause_started_at: undefined,
-      earned_break_minutes: earnedBreakMinutes,
-      updated_at: timestamp,
-    });
+  await db.transaction(
+    "rw",
+    db.focus_sessions,
+    db.focus_segments,
+    async () => {
+      if (session.state === "running") {
+        await closeRunningFocusSegment(session, timestamp);
+      } else {
+        await ensureCompletedFocusSegmentFallback(
+          session,
+          timestamp,
+          actualDurationMinutes,
+        );
+      }
 
-    if (earnedBreakMinutes > 0) {
-      await db.break_bank_transactions.put({
-        id: `break-earned-${focusSessionId}`,
-        focus_session_id: focusSessionId,
-        local_date: session.local_date,
-        type: "earned",
-        minutes: earnedBreakMinutes,
-        note: "完成专注自动获得休息余额",
-        created_at: timestamp,
+      await db.focus_sessions.update(focusSessionId, {
+        state: "completed",
+        actual_duration_minutes: actualDurationMinutes,
+        completed_at: timestamp,
+        current_pause_started_at: undefined,
+        earned_break_minutes: earnedBreakMinutes,
+        updated_at: timestamp,
       });
-    }
-  });
+    },
+  );
 }
 
 export async function submitSessionReview(
@@ -246,8 +304,9 @@ export async function submitSessionReview(
   }
 
   const timestamp = nowIso();
+  const breakLocalDate = toLocalDate(new Date(timestamp));
   const reviewId = createId("review");
-  const balance = await getBreakBalance();
+  const balance = await getBreakBalance(breakLocalDate);
   const breakMinutesUsed =
     input.breakChoice === "use_now"
       ? Math.round(Math.max(0, input.breakMinutesUsed ?? 0))
@@ -309,7 +368,7 @@ export async function submitSessionReview(
         await db.break_bank_transactions.add({
           id: `break-used-${breakSessionId}`,
           focus_session_id: input.focusSessionId,
-          local_date: focusSession.local_date,
+          local_date: breakLocalDate,
           type: "used",
           minutes: -breakMinutesUsed,
           note: "复盘时选择使用休息余额",
@@ -318,7 +377,7 @@ export async function submitSessionReview(
         await db.break_sessions.add({
           id: breakSessionId,
           focus_session_id: input.focusSessionId,
-          local_date: focusSession.local_date,
+          local_date: breakLocalDate,
           planned_duration_minutes: breakMinutesUsed,
           started_at: timestamp,
           state: "running",
@@ -406,12 +465,13 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
     throw new Error("休息倒计时正在进行。");
   }
 
-  const balance = await getBreakBalance();
+  const timestamp = nowIso();
+  const localDate = toLocalDate(new Date(timestamp));
+  const balance = await getBreakBalance(localDate);
   if (breakMinutes > balance) {
     throw new Error("使用的休息时间不能超过当前余额。");
   }
 
-  const timestamp = nowIso();
   const breakSessionId = createId("break");
 
   await db.transaction(
@@ -422,7 +482,7 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
     async () => {
       await db.break_bank_transactions.add({
         id: `break-used-${breakSessionId}`,
-        local_date: toLocalDate(new Date(timestamp)),
+        local_date: localDate,
         type: "used",
         minutes: -breakMinutes,
         note: "延长休息使用休息余额",
@@ -430,7 +490,7 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
       });
       await db.break_sessions.add({
         id: breakSessionId,
-        local_date: toLocalDate(new Date(timestamp)),
+        local_date: localDate,
         planned_duration_minutes: breakMinutes,
         started_at: timestamp,
         state: "running",
@@ -539,9 +599,17 @@ export async function updateLabel(input: {
   await db.labels.update(input.labelId, updates);
 }
 
-export async function getBreakBalance(): Promise<number> {
-  const transactions = await db.break_bank_transactions.toArray();
-  return calculateBreakBalance(transactions);
+export async function getBreakBalance(localDate = toLocalDate()): Promise<number> {
+  const [focusSessions, transactions] = await Promise.all([
+    db.focus_sessions.toArray(),
+    db.break_bank_transactions.toArray(),
+  ]);
+
+  return calculateDailyBreakLedger(
+    focusSessions,
+    transactions,
+    localDate,
+  ).balanceMinutes;
 }
 
 export async function exportAllData(): Promise<AppBackup> {
@@ -564,6 +632,7 @@ export async function importAllData(payload: unknown): Promise<ImportDataResult>
       db.labels,
       db.arrival_sessions,
       db.focus_sessions,
+      db.focus_segments,
       db.session_reviews,
       db.session_review_labels,
       db.break_bank_transactions,
@@ -575,6 +644,7 @@ export async function importAllData(payload: unknown): Promise<ImportDataResult>
       await db.labels.bulkPut(snapshot.labels);
       await db.arrival_sessions.bulkPut(snapshot.arrivalSessions);
       await db.focus_sessions.bulkPut(snapshot.focusSessions);
+      await db.focus_segments.bulkPut(snapshot.focusSegments);
       await db.session_reviews.bulkPut(snapshot.sessionReviews);
       await db.session_review_labels.bulkPut(snapshot.sessionReviewLabels);
       await db.break_bank_transactions.bulkPut(snapshot.breakBankTransactions);
@@ -610,6 +680,7 @@ export async function seedDemoData(): Promise<{
     [
       db.arrival_sessions,
       db.focus_sessions,
+      db.focus_segments,
       db.session_reviews,
       db.session_review_labels,
       db.break_bank_transactions,
@@ -622,6 +693,7 @@ export async function seedDemoData(): Promise<{
       for (const day of demoDays) {
         const arrivalId = `demo-arrival-${day.date}`;
         let cursorMinutes = day.delay;
+        let dailyFocusCreditMinutes = 0;
 
         await db.arrival_sessions.put({
           id: arrivalId,
@@ -642,7 +714,11 @@ export async function seedDemoData(): Promise<{
             day.arrival,
             cursorMinutes + session.minutes,
           );
-          const earnedBreak = calculateEarnedBreakMinutes(session.minutes);
+          const earnedBreak = calculateNewlyEarnedBreakMinutes(
+            dailyFocusCreditMinutes,
+            session.minutes,
+          );
+          dailyFocusCreditMinutes += session.minutes;
 
           await db.focus_sessions.put({
             id: focusId,
@@ -655,6 +731,16 @@ export async function seedDemoData(): Promise<{
             completed_at: completedAt,
             state: "reviewed",
             earned_break_minutes: earnedBreak,
+            created_at: now,
+            updated_at: now,
+          });
+          await db.focus_segments.put({
+            id: `demo-focus-segment-${day.date}-${index + 1}`,
+            focus_session_id: focusId,
+            local_date: day.date,
+            started_at: startedAt,
+            ended_at: completedAt,
+            state: "completed",
             created_at: now,
             updated_at: now,
           });
@@ -688,18 +774,6 @@ export async function seedDemoData(): Promise<{
               review_id: reviewId,
               label_id: labelId,
               label_type: "blocker",
-              created_at: completedAt,
-            });
-          }
-
-          if (earnedBreak > 0) {
-            await db.break_bank_transactions.put({
-              id: `demo-break-earned-${day.date}-${index + 1}`,
-              focus_session_id: focusId,
-              local_date: day.date,
-              type: "earned",
-              minutes: earnedBreak,
-              note: "Demo 完成专注自动获得休息余额",
               created_at: completedAt,
             });
           }
@@ -754,20 +828,51 @@ async function getOpenArrival() {
     .filter((arrival) => !arrival.deleted_at && !arrival.left_at)
     .sort(
       (a, b) =>
-        new Date(b.arrived_at).getTime() - new Date(a.arrived_at).getTime(),
+        new Date(a.arrived_at).getTime() - new Date(b.arrived_at).getTime(),
     )[0];
 }
 
+async function getDailyFocusCreditMinutes(
+  localDate: string,
+  excludedFocusSessionId?: Id,
+): Promise<number> {
+  const focusSessions = await db.focus_sessions.toArray();
+
+  return calculateDailyFocusCreditMinutes(
+    focusSessions.filter((session) => session.id !== excludedFocusSessionId),
+    localDate,
+  );
+}
+
 async function closeCurrentArrival(timestamp: string): Promise<void> {
-  const openArrival = await getOpenArrival();
-  if (!openArrival) {
+  await closeOpenArrivals(timestamp);
+}
+
+async function closeOpenArrivals(
+  timestamp: string,
+  requestedArrivalId?: Id,
+): Promise<void> {
+  const openArrivals = (await db.arrival_sessions.toArray()).filter(
+    (arrival) => !arrival.deleted_at && !arrival.left_at,
+  );
+
+  if (openArrivals.length === 0) {
     return;
   }
 
-  await db.arrival_sessions.update(openArrival.id, {
-    left_at: timestamp,
-    updated_at: timestamp,
-  });
+  const arrivalIds = new Set(openArrivals.map((arrival) => arrival.id));
+  if (requestedArrivalId) {
+    arrivalIds.add(requestedArrivalId);
+  }
+
+  await Promise.all(
+    Array.from(arrivalIds).map((arrivalId) =>
+      db.arrival_sessions.update(arrivalId, {
+        left_at: timestamp,
+        updated_at: timestamp,
+      }),
+    ),
+  );
 }
 
 async function restartArrivalForNextFocus(
@@ -785,10 +890,77 @@ async function restartArrivalForNextFocus(
   });
 }
 
+async function closeRunningFocusSegment(
+  session: FocusSessionRecord,
+  timestamp: string,
+): Promise<void> {
+  const runningSegment = await db.focus_segments
+    .where("focus_session_id")
+    .equals(session.id)
+    .filter((segment) => segment.state === "running" && !segment.deleted_at)
+    .first();
+
+  if (runningSegment) {
+    await db.focus_segments.update(runningSegment.id, {
+      state: "completed",
+      ended_at: timestamp,
+      updated_at: timestamp,
+    });
+    return;
+  }
+
+  await db.focus_segments.add({
+    id: createId("focus-segment"),
+    focus_session_id: session.id,
+    local_date: session.local_date,
+    started_at: session.started_at,
+    ended_at: timestamp,
+    state: "completed",
+    created_at: session.started_at,
+    updated_at: timestamp,
+  });
+}
+
+async function ensureCompletedFocusSegmentFallback(
+  session: FocusSessionRecord,
+  timestamp: string,
+  actualDurationMinutes: number,
+): Promise<void> {
+  const existingSegment = await db.focus_segments
+    .where("focus_session_id")
+    .equals(session.id)
+    .filter((segment) => !segment.deleted_at)
+    .first();
+
+  if (existingSegment) {
+    return;
+  }
+
+  const startedAt = new Date(session.started_at);
+  const endedAt = new Date(startedAt);
+  endedAt.setMinutes(startedAt.getMinutes() + actualDurationMinutes);
+  const fallbackEnd =
+    endedAt.getTime() > new Date(timestamp).getTime()
+      ? timestamp
+      : endedAt.toISOString();
+
+  await db.focus_segments.add({
+    id: createId("focus-segment"),
+    focus_session_id: session.id,
+    local_date: session.local_date,
+    started_at: session.started_at,
+    ended_at: fallbackEnd,
+    state: "completed",
+    created_at: session.started_at,
+    updated_at: timestamp,
+  });
+}
+
 async function deleteDemoRecords(): Promise<void> {
   await Promise.all([
     deleteRecordsWithPrefix(db.arrival_sessions, "demo-"),
     deleteRecordsWithPrefix(db.focus_sessions, "demo-"),
+    deleteRecordsWithPrefix(db.focus_segments, "demo-"),
     deleteRecordsWithPrefix(db.session_reviews, "demo-"),
     deleteRecordsWithPrefix(db.session_review_labels, "demo-"),
     deleteRecordsWithPrefix(db.break_bank_transactions, "demo-"),

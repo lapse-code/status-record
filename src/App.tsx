@@ -41,7 +41,7 @@ import {
   buildDayTimeline,
   getAnalyticsRange,
 } from "./domain/analytics";
-import { calculateBreakBalance } from "./domain/break-bank";
+import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
   activeLabelsByType,
   getNoneBlockerLabel,
@@ -89,10 +89,42 @@ import type {
 type TabId = "today" | "week" | "analytics" | "labels";
 type DetailFilter = { type: LabelType; id: Id } | null;
 
+type DataActionsProps = {
+  className: string;
+  onExport: () => void;
+  onImportClick: () => void;
+  onSeedDemoData: () => void;
+};
+
+function DataActions({
+  className,
+  onExport,
+  onImportClick,
+  onSeedDemoData,
+}: DataActionsProps) {
+  return (
+    <div className={className} aria-label="数据操作">
+      <button className="ghost-button" type="button" onClick={onSeedDemoData}>
+        <Plus size={18} />
+        示例数据
+      </button>
+      <button className="ghost-button" type="button" onClick={onImportClick}>
+        <Upload size={18} />
+        导入
+      </button>
+      <button className="ghost-button" type="button" onClick={onExport}>
+        <Download size={18} />
+        导出
+      </button>
+    </div>
+  );
+}
+
 const emptySnapshot: AppSnapshot = {
   labels: [],
   arrivalSessions: [],
   focusSessions: [],
+  focusSegments: [],
   sessionReviews: [],
   sessionReviewLabels: [],
   breakBankTransactions: [],
@@ -151,10 +183,17 @@ export default function App() {
     () => getOpenArrival(snapshot.arrivalSessions),
     [snapshot.arrivalSessions],
   );
-  const breakBalance = useMemo(
-    () => calculateBreakBalance(snapshot.breakBankTransactions),
-    [snapshot.breakBankTransactions],
+  const currentLocalDate = toLocalDate(now);
+  const breakLedger = useMemo(
+    () =>
+      calculateDailyBreakLedger(
+        snapshot.focusSessions,
+        snapshot.breakBankTransactions,
+        currentLocalDate,
+      ),
+    [currentLocalDate, snapshot.breakBankTransactions, snapshot.focusSessions],
   );
+  const breakBalance = breakLedger.balanceMinutes;
   const todaySummary = useMemo(
     () =>
       buildAnalyticsSummary(
@@ -311,7 +350,7 @@ export default function App() {
       await checkInArrival();
       await refresh();
       setShowBreakCompletionPrompt(false);
-      setMessage("已开始记录下一轮启动延迟。");
+      setMessage("已开始记录下一轮拖延。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "开始学习失败。");
     }
@@ -338,6 +377,15 @@ export default function App() {
 
   return (
     <div className="app-shell focus-studio-shell">
+      <input
+        ref={importFileInputRef}
+        accept="application/json,.json"
+        aria-label="导入 JSON 文件"
+        className="visually-hidden"
+        type="file"
+        onChange={handleImport}
+      />
+
       <aside className="side-nav">
         <div className="brand-mark">
           <span className="brand-icon">
@@ -366,7 +414,7 @@ export default function App() {
         <div className="side-panel">
           <span>休息余额</span>
           <strong>{formatMinutes(breakBalance)}</strong>
-          <i>完成学习后自动累计</i>
+          <i>今日进度 {breakLedger.progressMinutes} / 25 分钟</i>
         </div>
 
         <div className="side-spacer" />
@@ -376,32 +424,12 @@ export default function App() {
           <i>数据保存在此设备</i>
         </div>
 
-        <div className="side-actions">
-          <button className="ghost-button" type="button" onClick={handleSeedDemoData}>
-            <Plus size={18} />
-            示例数据
-          </button>
-          <input
-            ref={importFileInputRef}
-            accept="application/json,.json"
-            aria-label="导入 JSON 文件"
-            className="visually-hidden"
-            type="file"
-            onChange={handleImport}
-          />
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => importFileInputRef.current?.click()}
-          >
-            <Upload size={18} />
-            导入
-          </button>
-          <button className="ghost-button" type="button" onClick={handleExport}>
-            <Download size={18} />
-            导出
-          </button>
-        </div>
+        <DataActions
+          className="data-actions side-actions"
+          onExport={handleExport}
+          onImportClick={() => importFileInputRef.current?.click()}
+          onSeedDemoData={handleSeedDemoData}
+        />
       </aside>
 
       <div className="workspace">
@@ -420,6 +448,13 @@ export default function App() {
           </div>
         </header>
 
+        <DataActions
+          className="data-actions workspace-data-actions"
+          onExport={handleExport}
+          onImportClick={() => importFileInputRef.current?.click()}
+          onSeedDemoData={handleSeedDemoData}
+        />
+
         {message ? (
           <div className="notice" role="status">
             {message}
@@ -435,7 +470,7 @@ export default function App() {
               <div className="panel-heading">
                 <div>
                   <h2>专注倒计时</h2>
-                  <p>到岗记录启动延迟，番茄钟记录真实学习分钟。</p>
+                  <p>到岗记录拖延，番茄钟记录真实专注分钟。</p>
                 </div>
                 <div
                   className={
@@ -449,7 +484,7 @@ export default function App() {
               <div className="arrival-row">
                 {activeBreakSession
                   ? (
-                    <span>休息倒计时进行中，结束后会自动开始记录下一轮启动延迟。</span>
+                    <span>休息倒计时进行中，结束后会自动开始记录下一轮拖延。</span>
                   ) : openArrival ? (
                     <>
                       <span>
@@ -482,7 +517,7 @@ export default function App() {
                         onClick={() =>
                           runAction(async () => {
                             await checkInArrival();
-                          }, "已到岗，启动延迟开始记录。")
+                          }, "已到岗，拖延开始记录。")
                         }
                       >
                         <LogIn size={18} />
@@ -507,7 +542,7 @@ export default function App() {
                     ? "休息中"
                     : activeFocusSession
                       ? activeFocusSession.state === "paused"
-                        ? "已暂停"
+                        ? "暂停中，正在记录拖延"
                         : "专注中"
                       : pendingReviewSession
                         ? "完成复盘后进入统计"
@@ -543,7 +578,10 @@ export default function App() {
                       className="secondary-button"
                       type="button"
                       onClick={() =>
-                        runAction(() => pauseFocusTimer(activeFocusSession.id), "已暂停。")
+                        runAction(
+                          () => pauseFocusTimer(activeFocusSession.id),
+                          "已暂停，正在记录拖延。",
+                        )
                       }
                     >
                       <Pause size={18} />
@@ -556,7 +594,7 @@ export default function App() {
                       onClick={() =>
                         runAction(
                           () => resumeFocusTimer(activeFocusSession.id),
-                          "已继续。",
+                          "已继续专注。",
                         )
                       }
                     >
@@ -570,7 +608,7 @@ export default function App() {
                     onClick={() =>
                       runAction(
                         () => completeFocusTimer(activeFocusSession.id),
-                        "已结束本轮，请复盘。",
+                        "已按当前专注时长结束本轮，请复盘。",
                       )
                     }
                   >
@@ -645,19 +683,33 @@ export default function App() {
                 <div>
                   <span>休息余额</span>
                   <strong>{formatMinutes(breakBalance)}</strong>
+                  <div
+                    className="break-progress"
+                    aria-label={`今日休息进度 ${breakLedger.progressMinutes} / 25 分钟`}
+                  >
+                    <span
+                      style={
+                        {
+                          "--progress": `${(breakLedger.progressMinutes / 25) * 100}%`,
+                        } as React.CSSProperties
+                      }
+                    />
+                  </div>
                 </div>
-                <p>每完成 25 分钟学习获得 5 分钟休息。</p>
+                <p>
+                  今日番茄钟累计每满 25 分钟获得 5 分钟休息，未用余额明天清零。
+                </p>
               </div>
             </section>
 
             <aside className="today-side">
               <section className="summary-strip">
                 <StatCard
-                  label="今日学习"
+                  label="今日专注"
                   value={formatMinutes(todaySummary.totalFocusMinutes)}
                 />
                 <StatCard
-                  label="今日启动延迟"
+                  label="今日拖延"
                   value={formatMinutes(todaySummary.totalStartupDelayMinutes)}
                 />
                 <StatCard
@@ -707,7 +759,7 @@ export default function App() {
               () => submitSessionReview(input),
               input.breakChoice === "use_now"
                 ? "复盘已保存，休息倒计时已开始。"
-                : "复盘已保存，已开始记录下一轮启动延迟。",
+                : "复盘已保存，已开始记录下一轮拖延。",
             );
           }}
         />
@@ -1014,9 +1066,10 @@ function ReviewModal({
   const [blockerNote, setBlockerNote] = useState("");
   const [breakChoice, setBreakChoice] =
     useState<SubmitSessionReviewInput["breakChoice"]>("save_for_later");
+  const availableBreakBalance = Math.max(0, Math.floor(breakBalance));
   const [breakMinutesUsed, setBreakMinutesUsed] = useState(
     Math.min(
-      breakBalance,
+      availableBreakBalance,
       focusSession.earned_break_minutes > 0 ? focusSession.earned_break_minutes : 5,
     ),
   );
@@ -1151,7 +1204,7 @@ function ReviewModal({
         </fieldset>
 
         <fieldset>
-          <legend>主要阻塞</legend>
+          <legend>不专注原因</legend>
           <div className="chip-grid">
             {blockerLabels.map((label) => (
               <button
@@ -1169,7 +1222,7 @@ function ReviewModal({
           </div>
           <textarea
             value={blockerNote}
-            placeholder="可选：补充说明阻塞原因"
+            placeholder="可选：补充说明不专注原因"
             onChange={(event) => setBlockerNote(event.currentTarget.value)}
           />
         </fieldset>
@@ -1192,7 +1245,7 @@ function ReviewModal({
             <label>
               <input
                 checked={breakChoice === "use_now"}
-                disabled={breakBalance <= 0}
+                disabled={availableBreakBalance <= 0}
                 name="break-choice"
                 type="radio"
                 onChange={() => setBreakChoice("use_now")}
@@ -1204,7 +1257,7 @@ function ReviewModal({
             休息倒计时分钟数
             <input
               disabled={breakChoice !== "use_now"}
-              max={breakBalance}
+              max={availableBreakBalance}
               min={1}
               type="number"
               value={breakMinutesUsed}
@@ -1454,7 +1507,13 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
   );
   const statusData = buildCountData(summary.statusCounts, snapshot.labels);
   const productData = buildCountData(summary.productLabelCounts, snapshot.labels);
-  const blockerData = buildCountData(summary.blockerLabelCounts, snapshot.labels);
+  const noneBlockerLabelId = getNoneBlockerLabel(snapshot.labels)?.id;
+  const blockerData = buildCountData(summary.blockerLabelCounts, snapshot.labels).filter(
+    (item) =>
+      item.id !== "blocker-none" &&
+      item.id !== noneBlockerLabelId &&
+      item.name !== "无",
+  );
   const selectedDetailLabel = detailFilter
     ? getDistributionData(detailFilter.type, statusData, productData, blockerData).find(
         (item) => item.id === detailFilter.id,
@@ -1508,9 +1567,9 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
         </div>
 
         <div className="summary-strip">
-          <StatCard label="学习时长" value={formatMinutes(summary.totalFocusMinutes)} />
+          <StatCard label="专注时长" value={formatMinutes(summary.totalFocusMinutes)} />
           <StatCard
-            label="启动延迟"
+            label="拖延"
             value={formatMinutes(summary.totalStartupDelayMinutes)}
           />
           <StatCard label="切换次数" value={`${summary.totalAttentionSwitchCount} 次`} />
@@ -1547,15 +1606,15 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
       />
 
       <section className="panel chart-panel">
-        <h3>学习与启动延迟</h3>
+        <h3>专注与拖延</h3>
         <ResponsiveContainer height={260} width="100%">
           <BarChart data={summary.trend}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" tick={{ fontSize: 12 }} />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="focusMinutes" fill="#2f855a" name="学习分钟" />
-            <Bar dataKey="startupDelayMinutes" fill="#e05c54" name="启动延迟" />
+            <Bar dataKey="focusMinutes" fill="#2f855a" name="专注分钟" />
+            <Bar dataKey="startupDelayMinutes" fill="#e05c54" name="拖延" />
           </BarChart>
         </ResponsiveContainer>
       </section>
@@ -1599,8 +1658,9 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
         onSelect={(id) => toggleDetailFilter("product", id)}
       />
       <DistributionPanel
-        title="阻塞原因"
+        title="不专注原因"
         data={blockerData}
+        emptyText="暂无不专注原因记录。"
         selectedId={detailFilter?.type === "blocker" ? detailFilter.id : null}
         onSelect={(id) => toggleDetailFilter("blocker", id)}
       />
@@ -1612,7 +1672,7 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
             <p>
               {selectedDetailLabel
                 ? `当前只看「${selectedDetailLabel.name}」相关记录`
-                : "点击上方状态、产物或阻塞图表，可筛选这里的复盘记录。"}
+                : "点击上方状态、产物或不专注原因图表，可筛选这里的复盘记录。"}
             </p>
           </div>
           {selectedDetailLabel ? (
@@ -1637,10 +1697,10 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
                 </div>
                 <div className="record-tags">
                   <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
-                  <span>阻塞：{entry.blockerLabelNames.join("、") || "未标记"}</span>
+                  <span>不专注原因：{entry.blockerLabelNames.join("、") || "未标记"}</span>
                 </div>
                 {entry.productNote ? <p>产物记录：{entry.productNote}</p> : null}
-                {entry.blockerNote ? <p>阻塞记录：{entry.blockerNote}</p> : null}
+                {entry.blockerNote ? <p>不专注记录：{entry.blockerNote}</p> : null}
               </li>
             ))}
           </ul>
@@ -1763,7 +1823,7 @@ function TimelineLegend({
     <div className="dot-legend" aria-label="日点阵图例">
       <span>
         <i className="day-dot startup_delay" />
-        延迟 {counts.startup_delay}
+        拖延 {counts.startup_delay}
       </span>
       <span>
         <i className="day-dot break" />
@@ -1771,11 +1831,11 @@ function TimelineLegend({
       </span>
       <span>
         <i className="day-dot focus" />
-        学习 {counts.focus}
+        专注 {counts.focus}
       </span>
       <span>
         <i className="day-dot blocked" />
-        阻塞 {counts.blocked}
+        不专注 {counts.blocked}
       </span>
     </div>
   );
@@ -1872,7 +1932,7 @@ function useElementWidth<T extends HTMLElement>() {
 
 function timelineCellLabel(state: DayTimelineCell["state"]) {
   if (state === "startup_delay") {
-    return "启动延迟";
+    return "拖延";
   }
 
   if (state === "break") {
@@ -1880,11 +1940,11 @@ function timelineCellLabel(state: DayTimelineCell["state"]) {
   }
 
   if (state === "blocked") {
-    return "阻塞或被打断";
+    return "不专注";
   }
 
   if (state === "focus") {
-    return "正常学习";
+    return "专注";
   }
 
   return "空白";
@@ -1893,16 +1953,18 @@ function timelineCellLabel(state: DayTimelineCell["state"]) {
 function DistributionPanel({
   title,
   data,
+  emptyText = "暂无数据。",
   selectedId,
   onSelect,
 }: {
   title: string;
   data: { id: Id; name: string; value: number; color?: string }[];
+  emptyText?: string;
   selectedId?: Id | null;
   onSelect?: (id: Id) => void;
 }) {
   return (
-    <section className="panel chart-panel">
+    <section className="panel chart-panel distribution-panel">
       <h3>{title}</h3>
       {data.length > 0 ? (
         <div className="distribution-grid">
@@ -1912,7 +1974,7 @@ function DistributionPanel({
                 data={data}
                 dataKey="value"
                 nameKey="name"
-                outerRadius={78}
+                outerRadius="72%"
               >
                 {data.map((item) => (
                   <Cell
@@ -1951,7 +2013,7 @@ function DistributionPanel({
           </ul>
         </div>
       ) : (
-        <p className="empty-text">暂无数据。</p>
+        <p className="empty-text">{emptyText}</p>
       )}
     </section>
   );
@@ -1968,7 +2030,7 @@ function DistributionLegendContent({
         className="legend-dot"
         style={{ backgroundColor: item.color ?? "#4a5568" }}
       />
-      {item.name}
+      <span className="legend-label">{item.name}</span>
       <strong>{item.value}</strong>
     </>
   );
@@ -2004,7 +2066,7 @@ function LabelsView({
         <div className="panel-heading">
           <div>
             <h2>标签管理</h2>
-            <p>状态、产物、阻塞都可以扩展；隐藏标签不会影响历史统计。</p>
+            <p>状态、产物、不专注原因都可以扩展；隐藏标签不会影响历史统计。</p>
           </div>
           <Tags size={22} />
         </div>
@@ -2018,7 +2080,7 @@ function LabelsView({
             >
               <option value="session_status">状态</option>
               <option value="product">产物</option>
-              <option value="blocker">阻塞</option>
+              <option value="blocker">不专注原因</option>
             </select>
           </label>
           <label>
@@ -2204,7 +2266,7 @@ function getOpenArrival(
     .filter((arrival) => !arrival.deleted_at && !arrival.left_at)
     .sort(
       (a, b) =>
-        new Date(b.arrived_at).getTime() - new Date(a.arrived_at).getTime(),
+        new Date(a.arrived_at).getTime() - new Date(b.arrived_at).getTime(),
     )[0];
 }
 
@@ -2295,5 +2357,5 @@ function typeLabel(type: LabelType): string {
   if (type === "product") {
     return "产物";
   }
-  return "阻塞";
+  return "不专注原因";
 }

@@ -55,6 +55,7 @@ export function countBackupTables(snapshot: AppSnapshot): ImportDataResult["tabl
     labels: snapshot.labels.length,
     arrival_sessions: snapshot.arrivalSessions.length,
     focus_sessions: snapshot.focusSessions.length,
+    focus_segments: snapshot.focusSegments.length,
     session_reviews: snapshot.sessionReviews.length,
     session_review_labels: snapshot.sessionReviewLabels.length,
     break_bank_transactions: snapshot.breakBankTransactions.length,
@@ -69,6 +70,7 @@ function snapshotToTables(snapshot: AppSnapshot): BackupTables {
     labels: snapshot.labels,
     arrival_sessions: snapshot.arrivalSessions,
     focus_sessions: snapshot.focusSessions,
+    focus_segments: snapshot.focusSegments,
     session_reviews: snapshot.sessionReviews,
     session_review_labels: snapshot.sessionReviewLabels,
     break_bank_transactions: snapshot.breakBankTransactions,
@@ -83,6 +85,7 @@ function tablesToSnapshot(tables: BackupTables): AppSnapshot {
     labels: tables.labels,
     arrivalSessions: tables.arrival_sessions,
     focusSessions: tables.focus_sessions,
+    focusSegments: tables.focus_segments,
     sessionReviews: tables.session_reviews,
     sessionReviewLabels: tables.session_review_labels,
     breakBankTransactions: tables.break_bank_transactions,
@@ -97,6 +100,7 @@ function validateBackupTables(value: object): BackupTables {
     labels: readRecords(value, "labels", "id"),
     arrival_sessions: readRecords(value, "arrival_sessions", "id"),
     focus_sessions: readRecords(value, "focus_sessions", "id"),
+    focus_segments: readOptionalRecords(value, "focus_segments", "id"),
     session_reviews: readRecords(value, "session_reviews", "id"),
     session_review_labels: readRecords(value, "session_review_labels", "id"),
     break_bank_transactions: readRecords(value, "break_bank_transactions", "id"),
@@ -111,6 +115,7 @@ function validateLegacySnapshot(value: object): AppSnapshot {
     labels: readRecords(value, "labels", "id"),
     arrivalSessions: readRecords(value, "arrivalSessions", "id"),
     focusSessions: readRecords(value, "focusSessions", "id"),
+    focusSegments: readOptionalRecords(value, "focusSegments", "id"),
     sessionReviews: readRecords(value, "sessionReviews", "id"),
     sessionReviewLabels: readRecords(value, "sessionReviewLabels", "id"),
     breakBankTransactions: readRecords(value, "breakBankTransactions", "id"),
@@ -137,6 +142,18 @@ function readRecords<T>(
   }
 
   return value as T[];
+}
+
+function readOptionalRecords<T>(
+  source: object,
+  tableName: string,
+  primaryKey: "id" | "key",
+): T[] {
+  if (!(tableName in source)) {
+    return [];
+  }
+
+  return readRecords(source, tableName, primaryKey);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

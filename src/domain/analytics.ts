@@ -246,10 +246,35 @@ export function buildDayTimeline(
     const state = isBlockedFocusReview(review, reviewLabels, labelById)
       ? "blocked"
       : "focus";
+    const segments = snapshot.focusSegments
+      .filter(
+        (segment) =>
+          segment.focus_session_id === session.id &&
+          segment.state === "completed" &&
+          segment.ended_at &&
+          !segment.deleted_at,
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
+      );
+
+    if (segments.length > 0) {
+      segments.forEach((segment) => {
+        markTimelineSegment(
+          minuteStates,
+          localDate,
+          segment.started_at,
+          segment.ended_at as string,
+          state,
+        );
+      });
+      return;
+    }
+
     const start = new Date(session.started_at);
     const end = new Date(start);
     end.setMinutes(start.getMinutes() + (session.actual_duration_minutes ?? 0));
-
     markTimelineSegment(
       minuteStates,
       localDate,
@@ -506,7 +531,7 @@ function formatMinuteOfDay(minuteOfDay: number): string {
 
 function timelineStateLabel(state: DayTimelineCellState): string {
   if (state === "startup_delay") {
-    return "启动延迟";
+    return "拖延";
   }
 
   if (state === "break") {
@@ -514,11 +539,11 @@ function timelineStateLabel(state: DayTimelineCellState): string {
   }
 
   if (state === "blocked") {
-    return "阻塞/被打断";
+    return "不专注";
   }
 
   if (state === "focus") {
-    return "正常学习";
+    return "专注";
   }
 
   return "空白";

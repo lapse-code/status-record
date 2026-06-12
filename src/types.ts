@@ -61,6 +61,18 @@ export interface FocusSessionRecord {
   deleted_at?: ISODateTime;
 }
 
+export interface FocusSegmentRecord {
+  id: Id;
+  focus_session_id: Id;
+  local_date: LocalDate;
+  started_at: ISODateTime;
+  ended_at?: ISODateTime;
+  state: "running" | "completed" | "canceled";
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+  deleted_at?: ISODateTime;
+}
+
 export interface SessionReviewRecord {
   id: Id;
   focus_session_id: Id;
@@ -127,6 +139,7 @@ export interface AppSnapshot {
   labels: LabelRecord[];
   arrivalSessions: ArrivalSessionRecord[];
   focusSessions: FocusSessionRecord[];
+  focusSegments: FocusSegmentRecord[];
   sessionReviews: SessionReviewRecord[];
   sessionReviewLabels: SessionReviewLabelRecord[];
   breakBankTransactions: BreakBankTransactionRecord[];
@@ -139,6 +152,7 @@ export interface BackupTables {
   labels: LabelRecord[];
   arrival_sessions: ArrivalSessionRecord[];
   focus_sessions: FocusSessionRecord[];
+  focus_segments: FocusSegmentRecord[];
   session_reviews: SessionReviewRecord[];
   session_review_labels: SessionReviewLabelRecord[];
   break_bank_transactions: BreakBankTransactionRecord[];

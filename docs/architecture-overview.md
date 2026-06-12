@@ -37,7 +37,7 @@ flowchart LR
 | --- | --- |
 | UI Components | 页面、表单、按钮、图表，只处理展示和用户事件 |
 | Application Services | 编排流程，例如开始番茄钟、完成复盘、记录睡眠 |
-| Domain Logic | 纯函数规则，例如休息余额计算、启动延迟计算、统计聚合 |
+| Domain Logic | 纯函数规则，例如休息余额计算、拖延/启动延迟计算、统计聚合 |
 | Repositories | 读写本地数据库，处理 migration |
 | Analytics Engine | 从源数据生成日/周/月统计 |
 | Shared Types | 统一 TypeScript 类型和输入校验 |
@@ -87,13 +87,14 @@ stateDiagram-v2
 - UI 按用户本地时区展示。
 - 统计日期按用户当前本地日期切分。
 - duration 类字段统一用分钟或秒，字段名必须明确，例如 `duration_minutes`。
-- 启动延迟是派生值，可存缓存，但必须能从 `arrival_sessions.arrived_at` 和 `focus_sessions.started_at` 重新计算。
+- 拖延是派生值，内部字段仍可称 `startup_delay`；可存缓存，但必须能从 `arrival_sessions.arrived_at` 和 `focus_sessions.started_at` 重新计算。
 
 ## 本地优先原则
 
 - MVP 不依赖网络。
 - 用户数据默认只保存在本机浏览器。
 - 必须提供导出和导入能力，避免用户被锁在某个浏览器存储里。
+- 导入、导出和示例数据属于全局数据操作，不应只挂在侧栏；当侧栏操作区隐藏时，主内容区必须提供替代入口。
 - 未来如做同步，需要在 schema 中增加 `sync_status`、`updated_at`、`deleted_at` 等字段。
 
 ## 当前运行方式

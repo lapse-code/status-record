@@ -9,6 +9,7 @@ type ISODateTime = string;
 type LocalDate = string; // YYYY-MM-DD
 type Id = string;
 
+// `blocker` 是内部兼容名称，用户界面显示为“不专注原因”。
 type LabelType = "session_status" | "product" | "blocker";
 ```
 
@@ -33,8 +34,9 @@ interface StartFocusTimerResult {
 规则：
 
 - `plannedDurationMinutes` 必须大于 0。
-- 如果当天有打开的 arrival session，应自动绑定。
-- 如果没有打开的 arrival session，系统必须同步创建一条 arrival session，并把本轮 focus session 绑定到它；此时启动延迟按 0 分钟计算。
+- 如果有打开的 arrival session，应自动绑定最早打开的那条，不能创建新 arrival session，也不能重置 `arrived_at`。
+- 如果没有打开的 arrival session，系统必须同步创建一条 arrival session，并把本轮 focus session 绑定到它；此时拖延按 0 分钟计算。
+- UI 中称为“拖延”，内部 contract 保留 startup delay 命名。
 
 ### completeFocusTimer
 
@@ -55,8 +57,28 @@ interface CompleteFocusTimerResult {
 
 - 完成后创建待复盘状态。
 - `actualDurationMinutes` 由系统按实际有效专注时间计算：`completedAt - startedAt - pausedTotalSeconds - activePauseSeconds`，向下取整到分钟，并且不超过 `plannedDurationMinutes`。
-- `earnedBreakMinutes = floor(actualDurationMinutes / 25) * 5`。
-- 暂停时记录 `current_pause_started_at`，继续时累计到 `paused_total_seconds`，刷新页面后可恢复合理剩余时间。
+- `earnedBreakMinutes` 不是单轮独立计算，而是本轮 `actualDurationMinutes` 写入今日学习累计账本后，新跨过的 25 分钟门槛数量乘以 5。例如今天已有 15 分钟，本轮完成 15 分钟，则本轮获得 5 分钟休息，并留下 5 / 25 分钟今日进度。
+- 暂停时关闭当前 `focus_segments` 专注片段并记录 `current_pause_started_at`，暂停后的时间回到打开的 arrival session 中，点阵显示为拖延。
+- 继续时累计暂停秒数到 `paused_total_seconds`，并在同一个 focus session 下创建新的 `focus_segments` 片段。
+- 点击完成会关闭当前片段，按当前有效专注分钟结束本轮，并进入复盘；点击取消会取消本轮，不进入专注统计，也不写入今日学习累计账本。
+
+### FocusSegment
+
+```ts
+interface FocusSegment {
+  id: Id;
+  focusSessionId: Id;
+  localDate: LocalDate;
+  startedAt: ISODateTime;
+  endedAt?: ISODateTime;
+  state: "running" | "completed" | "canceled";
+}
+```
+
+规则：
+
+- 统计和日点阵优先使用 completed focus segments 表示真实专注时间。
+- 如果历史数据没有 focus segments，日点阵回退到 `focus_sessions.started_at + actual_duration_minutes` 的连续区间。
 
 ## Review Service
 
@@ -86,10 +108,10 @@ interface SubmitSessionReviewResult {
 
 - `attentionSwitchCount` 必须是 0 或正整数。
 - `statusLabelId` 必填。
-- `blockerLabelIds` 可以包含默认“无”标签；如果选择“无”，不应同时选择其他阻塞标签。
-- `breakMinutesUsed` 不能超过当前休息余额。
+- `blockerLabelIds` 可以包含默认“无”标签；如果选择“无”，不应同时选择其他不专注原因标签。
+- `breakMinutesUsed` 不能超过当前日期的休息余额。
 - `breakChoice = "use_now"` 时，`breakMinutesUsed` 必须大于 0，并创建休息倒计时。
-- `breakChoice = "save_for_later"` 时，不扣余额，提交后直接重开下一轮启动延迟记录。
+- `breakChoice = "save_for_later"` 时，不扣余额，提交后直接重开下一轮拖延记录。
 - 提交后 focus session 状态变为 `reviewed`。
 
 ## Break Timer Service
@@ -121,7 +143,8 @@ interface CompleteBreakTimerResult {
 - 休息倒计时自然结束时，使用完整计划休息分钟。
 - 用户提前结束休息时，按已过时间向上取整扣除实际使用分钟，未用完分钟写入 adjustment 退回余额。
 - 休息自然结束且仍有可用余额时，UI 可以暂不重新打开 arrival session，而是弹窗询问是否继续休息。
-- 用户选择开始学习，或没有剩余休息余额时，系统重新打开一个 arrival session，用于记录下一轮启动延迟。
+- 用户选择开始专注，或没有剩余休息余额时，系统重新打开一个 arrival session，用于记录下一轮拖延。
+- 休息余额只看当前日期；昨天未使用的休息不会进入今天。
 
 ### startBreakTimer
 
@@ -134,9 +157,9 @@ interface StartBreakTimerInput {
 规则：
 
 - 用于复盘之外的继续休息场景，例如休息自然结束后继续使用余额。
-- `minutes` 必须大于 0，且不能超过当前休息余额。
+- `minutes` 必须大于 0，且不能超过当前日期的休息余额。
 - 启动时写入一条 `used` 交易，并创建新的 running `break_sessions`。
-- 如果当前有打开的 arrival session，开始休息前会关闭它，避免休息时间被记为启动延迟。
+- 如果当前有打开的 arrival session，开始休息前会关闭它，避免休息时间被记为拖延。
 
 ## Arrival Service
 
@@ -154,6 +177,11 @@ interface CheckInArrivalResult {
 }
 ```
 
+规则：
+
+- 到岗是开放状态单例：存在未关闭的 arrival session 时，重复到岗必须返回已有记录，不新增、不重置 `arrived_at`。
+- 如果历史数据里已经有多条未关闭 arrival session，系统以最早打开的那条作为当前有效到岗。
+
 ### checkOutArrival
 
 ```ts
@@ -162,6 +190,11 @@ interface CheckOutArrivalInput {
   leftAt?: ISODateTime;
 }
 ```
+
+规则：
+
+- 离开会关闭当前开放到岗状态。
+- 如果历史数据里存在多条未关闭 arrival session，离开时会把这些重复开放记录一并关闭，避免刷新后再次显示错误到岗时间。
 
 ### getStartupDelay
 
@@ -178,6 +211,7 @@ interface StartupDelayResult {
 
 - 有第一轮 focus session 时，`startupDelayMinutes = firstFocus.startedAt - arrivedAt`。
 - 没有开始番茄钟时不伪造 0。
+- UI 展示时 `startupDelayMinutes` 显示为“拖延”。
 
 ## Sleep Service
 
@@ -282,7 +316,8 @@ interface AnalyticsSummary {
 
 - 统计必须基于已完成并已复盘的 focus sessions。
 - 睡眠统计按日期 join，不要求每个学习日都有睡眠记录。
-- 复盘明细必须保留状态、产物、阻塞的标签 id 和名称，用于统计页按状态、产物或阻塞筛选“记录明细”。
+- 复盘明细必须保留状态、产物、不专注原因的标签 id 和名称，用于统计页按状态、产物或不专注原因筛选“记录明细”。
+- `blockerLabelCounts` 作为底层聚合会保留默认“无”，用于历史数据完整性；统计页“不专注原因”图表在展示层排除“无”，没有其他原因时显示“暂无不专注原因记录”。
 
 ### buildDayTimeline
 
@@ -312,11 +347,25 @@ interface DayTimelineCell {
 - UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
 - 每个 5 分钟 cell 内部先按 1 分钟粒度累计状态，再用多数分钟决定 cell 状态。
 - 如果同一个 cell 内多个状态分钟数打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在分钟数最多时才成为最终状态。
-- `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间。
-- `break` 来自 `break_sessions` 的实际休息时间，显示为独立颜色，不计入启动延迟颜色。
-- `focus` 来自已复盘且没有阻塞/被打断的 focus session。
-- `blocked` 来自有非“无”阻塞标签，或状态为“被打断/卡住”的 focus session。
+- `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间，UI 显示为“拖延”。
+- `break` 来自 `break_sessions` 的实际休息时间，UI 显示为“休息”。
+- `focus` 来自已复盘且没有不专注原因/被打断的 focus session，UI 显示为“专注”。
+- `blocked` 来自有非“无”的不专注原因标签，或状态为“被打断/卡住”的 focus session，UI 显示为“不专注”。
 - UI 可以为任意 `LocalDate` 调用此函数；日期导航不限制历史范围。
+
+## UI Data Actions Contract
+
+全局数据操作包括：
+
+- 示例数据。
+- 导入 JSON。
+- 导出 JSON。
+
+规则：
+
+- 大屏布局可以把这些入口放在侧栏。
+- 任何会隐藏侧栏操作区的响应式布局，都必须在主内容区域提供同等入口。
+- 导入文件控件应与可见按钮解耦，避免某个布局下按钮存在但无法触发文件选择。
 
 ## Demo Data Service
 
@@ -332,7 +381,7 @@ interface SeedDemoDataResult {
 
 规则：
 
-- 通过右上角“示例数据”按钮触发。
+- 通过全局“示例数据”入口触发；大屏可在侧栏，侧栏操作区隐藏时在主内容区域显示。
 - 写入 2026-06-01 到 2026-06-10 的 demo 记录。
 - 重复触发时只清理 `demo-` 前缀数据，不删除真实记录。
 - Demo 数据写入当前浏览器 IndexedDB，因此无需后端。
@@ -351,6 +400,7 @@ interface AppBackup {
     labels: LabelRecord[];
     arrival_sessions: ArrivalSessionRecord[];
     focus_sessions: FocusSessionRecord[];
+    focus_segments: FocusSegmentRecord[];
     session_reviews: SessionReviewRecord[];
     session_review_labels: SessionReviewLabelRecord[];
     break_bank_transactions: BreakBankTransactionRecord[];
@@ -365,6 +415,7 @@ interface AppBackup {
 
 - 导出文件使用稳定备份格式，不再直接暴露 UI 内部的 camelCase `AppSnapshot`。
 - `tables` 使用数据库表名，方便未来映射到后端同步或 SQLite。
+- `focus_segments` 保存暂停/继续后的真实专注片段；旧备份缺少该表时导入按空数组兼容。
 - 导出只读本地 IndexedDB，不修改任何数据。
 
 ### importAllData

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const backupFixture = {
   format: "status-record.backup",
@@ -96,27 +96,27 @@ const pendingReviewBreakFixture = {
     arrival_sessions: [
       {
         id: "break-arrival-1",
-        local_date: "2026-06-11",
-        arrived_at: "2026-06-11T00:00:00.000Z",
-        left_at: "2026-06-11T00:30:00.000Z",
-        created_at: "2026-06-11T00:00:00.000Z",
-        updated_at: "2026-06-11T00:30:00.000Z",
+        local_date: "2026-06-12",
+        arrived_at: "2026-06-12T00:00:00.000Z",
+        left_at: "2026-06-12T00:30:00.000Z",
+        created_at: "2026-06-12T00:00:00.000Z",
+        updated_at: "2026-06-12T00:30:00.000Z",
       },
     ],
     focus_sessions: [
       {
         id: "break-focus-1",
         arrival_session_id: "break-arrival-1",
-        local_date: "2026-06-11",
+        local_date: "2026-06-12",
         planned_duration_minutes: 25,
         actual_duration_minutes: 25,
-        started_at: "2026-06-11T00:00:00.000Z",
+        started_at: "2026-06-12T00:00:00.000Z",
         paused_total_seconds: 0,
-        completed_at: "2026-06-11T00:25:00.000Z",
+        completed_at: "2026-06-12T00:25:00.000Z",
         state: "completed",
         earned_break_minutes: 5,
-        created_at: "2026-06-11T00:00:00.000Z",
-        updated_at: "2026-06-11T00:25:00.000Z",
+        created_at: "2026-06-12T00:00:00.000Z",
+        updated_at: "2026-06-12T00:25:00.000Z",
       },
     ],
     session_reviews: [],
@@ -125,11 +125,11 @@ const pendingReviewBreakFixture = {
       {
         id: "break-earned-1",
         focus_session_id: "break-focus-1",
-        local_date: "2026-06-11",
+        local_date: "2026-06-12",
         type: "earned",
         minutes: 5,
         note: "完整完成测试",
-        created_at: "2026-06-11T00:25:00.000Z",
+        created_at: "2026-06-12T00:25:00.000Z",
       },
     ],
     break_sessions: [],
@@ -152,36 +152,189 @@ const expiredBreakWithBalanceFixture = {
     break_bank_transactions: [
       {
         id: "extend-break-earned",
-        local_date: "2026-06-11",
+        local_date: "2026-06-12",
         type: "earned",
         minutes: 20,
         note: "延长休息测试余额",
-        created_at: "2026-06-11T00:00:00.000Z",
+        created_at: "2026-06-12T00:00:00.000Z",
       },
       {
         id: "extend-break-used",
-        local_date: "2026-06-11",
+        local_date: "2026-06-12",
         type: "used",
         minutes: -5,
         note: "正在进行的休息已扣除",
-        created_at: "2026-06-11T00:05:00.000Z",
+        created_at: "2026-06-12T00:05:00.000Z",
       },
     ],
     break_sessions: [
       {
         id: "extend-break-running",
-        local_date: "2026-06-11",
+        local_date: "2026-06-12",
         planned_duration_minutes: 5,
-        started_at: "2026-06-11T00:05:00.000Z",
+        started_at: "2026-06-12T00:05:00.000Z",
         state: "running",
-        created_at: "2026-06-11T00:05:00.000Z",
-        updated_at: "2026-06-11T00:05:00.000Z",
+        created_at: "2026-06-12T00:05:00.000Z",
+        updated_at: "2026-06-12T00:05:00.000Z",
       },
     ],
     sleep_logs: [],
     app_settings: [],
   },
 };
+
+const cumulativeBreakPendingReviewFixture = {
+  format: "status-record.backup",
+  formatVersion: 1,
+  appVersion: "0.1.0",
+  exportedAt: "2026-06-12T00:00:00.000Z",
+  tables: {
+    labels: [],
+    arrival_sessions: [
+      {
+        id: "cumulative-arrival-1",
+        local_date: "2026-06-12",
+        arrived_at: "2026-06-12T00:00:00.000Z",
+        left_at: "2026-06-12T00:40:00.000Z",
+        created_at: "2026-06-12T00:00:00.000Z",
+        updated_at: "2026-06-12T00:40:00.000Z",
+      },
+    ],
+    focus_sessions: [
+      {
+        id: "cumulative-focus-reviewed",
+        arrival_session_id: "cumulative-arrival-1",
+        local_date: "2026-06-12",
+        planned_duration_minutes: 15,
+        actual_duration_minutes: 15,
+        started_at: "2026-06-12T00:00:00.000Z",
+        paused_total_seconds: 0,
+        completed_at: "2026-06-12T00:15:00.000Z",
+        state: "reviewed",
+        earned_break_minutes: 0,
+        created_at: "2026-06-12T00:00:00.000Z",
+        updated_at: "2026-06-12T00:16:00.000Z",
+      },
+      {
+        id: "cumulative-focus-pending",
+        arrival_session_id: "cumulative-arrival-1",
+        local_date: "2026-06-12",
+        planned_duration_minutes: 15,
+        actual_duration_minutes: 15,
+        started_at: "2026-06-12T00:20:00.000Z",
+        paused_total_seconds: 0,
+        completed_at: "2026-06-12T00:35:00.000Z",
+        state: "completed",
+        earned_break_minutes: 5,
+        created_at: "2026-06-12T00:20:00.000Z",
+        updated_at: "2026-06-12T00:35:00.000Z",
+      },
+    ],
+    focus_segments: [
+      {
+        id: "cumulative-segment-reviewed",
+        focus_session_id: "cumulative-focus-reviewed",
+        local_date: "2026-06-12",
+        started_at: "2026-06-12T00:00:00.000Z",
+        ended_at: "2026-06-12T00:15:00.000Z",
+        state: "completed",
+        created_at: "2026-06-12T00:00:00.000Z",
+        updated_at: "2026-06-12T00:15:00.000Z",
+      },
+      {
+        id: "cumulative-segment-pending",
+        focus_session_id: "cumulative-focus-pending",
+        local_date: "2026-06-12",
+        started_at: "2026-06-12T00:20:00.000Z",
+        ended_at: "2026-06-12T00:35:00.000Z",
+        state: "completed",
+        created_at: "2026-06-12T00:20:00.000Z",
+        updated_at: "2026-06-12T00:35:00.000Z",
+      },
+    ],
+    session_reviews: [],
+    session_review_labels: [],
+    break_bank_transactions: [],
+    break_sessions: [],
+    sleep_logs: [],
+    app_settings: [],
+  },
+};
+
+const duplicateOpenArrivalFixture = {
+  format: "status-record.backup",
+  formatVersion: 1,
+  appVersion: "0.1.0",
+  exportedAt: "2026-06-11T00:00:00.000Z",
+  tables: {
+    labels: [],
+    arrival_sessions: [
+      {
+        id: "arrival-open-first",
+        local_date: "2026-06-11",
+        arrived_at: "2026-06-11T00:00:00.000Z",
+        created_at: "2026-06-11T00:00:00.000Z",
+        updated_at: "2026-06-11T00:00:00.000Z",
+      },
+      {
+        id: "arrival-open-duplicate",
+        local_date: "2026-06-11",
+        arrived_at: "2026-06-11T00:30:00.000Z",
+        created_at: "2026-06-11T00:30:00.000Z",
+        updated_at: "2026-06-11T00:30:00.000Z",
+      },
+    ],
+    focus_sessions: [],
+    focus_segments: [],
+    session_reviews: [],
+    session_review_labels: [],
+    break_bank_transactions: [],
+    break_sessions: [],
+    sleep_logs: [],
+    app_settings: [],
+  },
+};
+
+type ArrivalSessionRow = {
+  id: string;
+  arrived_at: string;
+  left_at?: string;
+};
+
+type FocusSessionRow = {
+  id: string;
+  arrival_session_id?: string;
+};
+
+async function readStoreRows<T>(page: Page, storeName: string): Promise<T[]> {
+  return page.evaluate((name) => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open("status-record-db");
+
+      request.onerror = () => {
+        reject(request.error ?? new Error("无法打开 IndexedDB。"));
+      };
+
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction(name, "readonly");
+        const store = transaction.objectStore(name);
+        const getAllRequest = store.getAll();
+
+        getAllRequest.onerror = () => {
+          database.close();
+          reject(getAllRequest.error ?? new Error("无法读取 IndexedDB。"));
+        };
+
+        getAllRequest.onsuccess = () => {
+          const rows = getAllRequest.result;
+          database.close();
+          resolve(rows);
+        };
+      };
+    });
+  }, storeName) as Promise<T[]>;
+}
 
 test("records a completed focus session review", async ({ page }) => {
   await page.goto("/");
@@ -201,8 +354,8 @@ test("records a completed focus session review", async ({ page }) => {
   await page.getByPlaceholder("这轮实际产出了什么？").fill("完成了第一条测试记录");
   await page.getByRole("button", { name: "保存复盘" }).click();
 
-  await expect(page.getByText("复盘已保存，已开始记录下一轮启动延迟。")).toBeVisible();
-  await expect(page.getByText("今日学习")).toBeVisible();
+  await expect(page.getByText("复盘已保存，已开始记录下一轮拖延。")).toBeVisible();
+  await expect(page.getByText("今日专注")).toBeVisible();
 });
 
 test("auto checks in when starting focus without an open arrival", async ({ page }) => {
@@ -218,9 +371,68 @@ test("auto checks in when starting focus without an open arrival", async ({ page
   await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
   await page.getByRole("button", { name: "保存复盘" }).click();
 
-  await expect(page.getByText("复盘已保存，已开始记录下一轮启动延迟。")).toBeVisible();
-  await expect(page.getByText("今日启动延迟")).toBeVisible();
-  await expect(page.locator(".stat-card").filter({ hasText: "今日启动延迟" }).getByText("0 分钟")).toBeVisible();
+  await expect(page.getByText("复盘已保存，已开始记录下一轮拖延。")).toBeVisible();
+  await expect(page.getByText("今日拖延")).toBeVisible();
+  await expect(page.locator(".stat-card").filter({ hasText: "今日拖延" }).getByText("0 分钟")).toBeVisible();
+});
+
+test("keeps the existing arrival when starting focus", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "到岗" }).click();
+  await expect(page.getByText("已到岗", { exact: true })).toBeVisible();
+
+  const beforeArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const beforeOpenArrivals = beforeArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(beforeOpenArrivals).toHaveLength(1);
+
+  await page.getByLabel("自定义分钟").fill("1");
+  await page.getByRole("button", { name: /^开始$/ }).click();
+  await expect(page.getByText("专注中")).toBeVisible();
+
+  const afterArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const afterOpenArrivals = afterArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+
+  expect(afterOpenArrivals).toHaveLength(1);
+  expect(afterOpenArrivals[0]).toMatchObject({
+    id: beforeOpenArrivals[0]?.id,
+    arrived_at: beforeOpenArrivals[0]?.arrived_at,
+  });
+});
+
+test("uses the first open arrival if duplicate open arrivals exist", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await page.getByLabel("导入 JSON 文件").setInputFiles({
+    name: "status-record-duplicate-open-arrival.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(duplicateOpenArrivalFixture)),
+  });
+  await expect(page.getByText("已导入")).toBeVisible();
+
+  await page.getByLabel("自定义分钟").fill("1");
+  await page.getByRole("button", { name: /^开始$/ }).click();
+  await expect(page.getByText("专注中")).toBeVisible();
+
+  const focusSessions = await readStoreRows<FocusSessionRow>(
+    page,
+    "focus_sessions",
+  );
+
+  expect(focusSessions).toHaveLength(1);
+  expect(focusSessions[0]?.arrival_session_id).toBe("arrival-open-first");
 });
 
 test("does not earn break balance for early manual completion", async ({ page }) => {
@@ -234,6 +446,28 @@ test("does not earn break balance for early manual completion", async ({ page })
     page.getByText("本轮 0 分钟，获得 0 分钟休息。"),
   ).toBeVisible();
   await expect(page.getByRole("radio", { name: "使用休息" })).toBeDisabled();
+});
+
+test("earns break balance from cumulative daily focus minutes", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("导入 JSON 文件").setInputFiles({
+    name: "status-record-cumulative-break.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(cumulativeBreakPendingReviewFixture)),
+  });
+
+  await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
+  await expect(
+    page.getByText("本轮 15 分钟，获得 5 分钟休息。"),
+  ).toBeVisible();
+
+  await page.getByRole("radio", { name: "使用休息" }).check();
+  await expect(page.getByLabel("休息倒计时分钟数")).toHaveValue("5");
+  await page.getByRole("button", { name: "保存复盘" }).click();
+
+  await expect(page.getByText("复盘已保存，休息倒计时已开始。")).toBeVisible();
+  await expect(page.locator(".timer-caption")).toHaveText("休息中");
 });
 
 test("starts and ends a break timer after review", async ({ page }) => {
@@ -281,6 +515,26 @@ test("prompts to extend break when rest balance remains", async ({ page }) => {
   await page.getByRole("button", { name: "继续休息 5 分钟" }).click();
   await expect(page.getByText("已继续休息 5 分钟。")).toBeVisible();
   await expect(page.locator(".timer-caption")).toHaveText("休息中");
+});
+
+test("pauses into procrastination and can resume the same focus timer", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("自定义分钟").fill("1");
+  await page.getByRole("button", { name: "开始" }).click();
+  await expect(page.getByText("专注中")).toBeVisible();
+
+  await page.getByRole("button", { name: "暂停" }).click();
+  await expect(page.getByText("已暂停，正在记录拖延。")).toBeVisible();
+  await expect(page.locator(".timer-caption")).toHaveText("暂停中，正在记录拖延");
+
+  await page.getByRole("button", { name: "继续" }).click();
+  await expect(page.getByText("已继续专注。")).toBeVisible();
+  await expect(page.locator(".timer-caption")).toHaveText("专注中");
+
+  await page.getByRole("button", { name: "完成" }).click();
+  await expect(page.getByText("已按当前专注时长结束本轮，请复盘。")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
 });
 
 test("restores a running focus timer after reload", async ({ page }) => {
@@ -352,7 +606,7 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(
     page.getByText(/2026-06-10 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
   ).toBeVisible();
-  await expect(page.getByText("学习 19")).toBeVisible();
+  await expect(page.getByText("专注 19")).toBeVisible();
   await page.getByRole("button", { name: "前一天" }).click();
   await expect(
     page.getByText(/2026-06-09 · 每点 5 分钟 · 每列 (30 分钟|1 小时)/),
@@ -382,7 +636,7 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("写复盘弹窗时被会议打断。")).toBeVisible();
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
 
-  const blockerPanel = page.locator(".chart-panel").filter({ hasText: "阻塞原因" });
+  const blockerPanel = page.locator(".chart-panel").filter({ hasText: "不专注原因" });
   await blockerPanel.getByRole("button", { name: "太累 2" }).click();
   await expect(page.getByText("当前只看「太累」相关记录")).toBeVisible();
   await expect(page.getByText("睡眠不足，写文档时注意力维持不住。")).toBeVisible();
@@ -412,6 +666,28 @@ test("shows weekly day timelines and navigates weeks", async ({ page }) => {
   await expect(page.getByText("2026-06-01 到 2026-06-07")).toBeVisible();
 });
 
+test("keeps data actions available when sidebar actions are hidden", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/");
+
+  const workspaceActions = page.locator(".workspace-data-actions");
+  await expect(page.locator(".side-actions").getByRole("button", { name: "导入" })).toBeHidden();
+  await expect(workspaceActions.getByRole("button", { name: "示例数据" })).toBeVisible();
+  await expect(workspaceActions.getByRole("button", { name: "导入" })).toBeVisible();
+  await expect(workspaceActions.getByRole("button", { name: "导出" })).toBeVisible();
+
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await workspaceActions.getByRole("button", { name: "导入" }).click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
+    name: "status-record-responsive-import.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backupFixture)),
+  });
+
+  await expect(page.getByText("已导入 7 条记录。")).toBeVisible();
+});
+
 test("imports a JSON backup into local records", async ({ page }) => {
   await page.goto("/");
 
@@ -426,7 +702,8 @@ test("imports a JSON backup into local records", async ({ page }) => {
   await page.getByRole("button", { name: "月" }).click();
 
   await expect(
-    page.locator(".stat-card").filter({ hasText: "学习时长" }).getByText("25 分钟"),
+    page.locator(".stat-card").filter({ hasText: "专注时长" }).getByText("25 分钟"),
   ).toBeVisible();
+  await expect(page.getByText("暂无不专注原因记录。")).toBeVisible();
   await expect(page.getByText("导入备份里的可见产物记录")).toBeVisible();
 });

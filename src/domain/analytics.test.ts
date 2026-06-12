@@ -64,6 +64,7 @@ const baseSnapshot: AppSnapshot = {
       updated_at: "2026-06-11T00:55:00.000Z",
     },
   ],
+  focusSegments: [],
   sessionReviews: [
     {
       id: "review-1",
@@ -293,6 +294,88 @@ describe("analytics summary", () => {
     expect(timeline[0]?.state).toBe("focus");
     expect(timeline[1]?.state).toBe("startup_delay");
     expect(timeline[2]?.state).toBe("startup_delay");
+  });
+
+  it("uses focus segments so paused time remains startup delay", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [
+        {
+          id: "arrival-paused",
+          local_date: "2026-06-11",
+          arrived_at: localIso(0, 0),
+          left_at: localIso(0, 25),
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 25),
+        },
+      ],
+      focusSessions: [
+        {
+          id: "focus-paused",
+          arrival_session_id: "arrival-paused",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 25,
+          actual_duration_minutes: 10,
+          started_at: localIso(0, 0),
+          paused_total_seconds: 600,
+          completed_at: localIso(0, 20),
+          state: "reviewed",
+          earned_break_minutes: 0,
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      focusSegments: [
+        {
+          id: "focus-segment-paused-1",
+          focus_session_id: "focus-paused",
+          local_date: "2026-06-11",
+          started_at: localIso(0, 0),
+          ended_at: localIso(0, 5),
+          state: "completed",
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 5),
+        },
+        {
+          id: "focus-segment-paused-2",
+          focus_session_id: "focus-paused",
+          local_date: "2026-06-11",
+          started_at: localIso(0, 15),
+          ended_at: localIso(0, 20),
+          state: "completed",
+          created_at: localIso(0, 15),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      sessionReviews: [
+        {
+          id: "review-paused",
+          focus_session_id: "focus-paused",
+          status_label_id: "status-completed",
+          attention_switch_count: 0,
+          created_at: localIso(0, 20),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      sessionReviewLabels: [
+        {
+          id: "review-label-paused",
+          review_id: "review-paused",
+          label_id: "blocker-none",
+          label_type: "blocker",
+          created_at: localIso(0, 20),
+        },
+      ],
+      breakSessions: [],
+      sleepLogs: [],
+    };
+    const timeline = buildDayTimeline(snapshot, "2026-06-11");
+
+    expect(timeline[0]?.state).toBe("focus");
+    expect(timeline[1]?.state).toBe("startup_delay");
+    expect(timeline[2]?.state).toBe("startup_delay");
+    expect(timeline[3]?.state).toBe("focus");
+    expect(timeline[4]?.state).toBe("startup_delay");
   });
 });
 

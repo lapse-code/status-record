@@ -5,6 +5,7 @@ import type {
   ArrivalSessionRecord,
   BreakSessionRecord,
   BreakBankTransactionRecord,
+  FocusSegmentRecord,
   FocusSessionRecord,
   LabelRecord,
   SessionReviewLabelRecord,
@@ -16,6 +17,7 @@ class StatusRecordDatabase extends Dexie {
   labels!: Table<LabelRecord, string>;
   arrival_sessions!: Table<ArrivalSessionRecord, string>;
   focus_sessions!: Table<FocusSessionRecord, string>;
+  focus_segments!: Table<FocusSegmentRecord, string>;
   session_reviews!: Table<SessionReviewRecord, string>;
   session_review_labels!: Table<SessionReviewLabelRecord, string>;
   break_bank_transactions!: Table<BreakBankTransactionRecord, string>;
@@ -43,6 +45,23 @@ class StatusRecordDatabase extends Dexie {
       arrival_sessions: "id,local_date,arrived_at,left_at,deleted_at",
       focus_sessions:
         "id,arrival_session_id,local_date,state,started_at,completed_at,canceled_at,deleted_at",
+      session_reviews:
+        "id,focus_session_id,status_label_id,created_at,deleted_at",
+      session_review_labels: "id,review_id,label_id,label_type,created_at",
+      break_bank_transactions:
+        "id,focus_session_id,local_date,type,created_at",
+      break_sessions:
+        "id,focus_session_id,local_date,state,started_at,completed_at,canceled_at",
+      sleep_logs: "id,&local_date,deleted_at",
+      app_settings: "key",
+    });
+    this.version(3).stores({
+      labels: "id,type,is_default,is_active,sort_order,deleted_at",
+      arrival_sessions: "id,local_date,arrived_at,left_at,deleted_at",
+      focus_sessions:
+        "id,arrival_session_id,local_date,state,started_at,completed_at,canceled_at,deleted_at",
+      focus_segments:
+        "id,focus_session_id,local_date,state,started_at,ended_at,deleted_at",
       session_reviews:
         "id,focus_session_id,status_label_id,created_at,deleted_at",
       session_review_labels: "id,review_id,label_id,label_type,created_at",
