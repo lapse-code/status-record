@@ -12,7 +12,12 @@ export type FocusSessionState =
 export type BreakTransactionType = "earned" | "used" | "adjustment";
 export type BreakSessionState = "running" | "completed" | "canceled";
 export type AnalyticsGrain = "day" | "week" | "month";
-export type DayTimelineCellState = "empty" | "startup_delay" | "focus" | "blocked";
+export type DayTimelineCellState =
+  | "empty"
+  | "startup_delay"
+  | "break"
+  | "focus"
+  | "blocked";
 
 export interface LabelRecord {
   id: Id;

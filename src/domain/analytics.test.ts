@@ -43,6 +43,7 @@ const baseSnapshot: AppSnapshot = {
       id: "arrival-1",
       local_date: "2026-06-11",
       arrived_at: "2026-06-11T00:00:00.000Z",
+      left_at: "2026-06-11T00:55:00.000Z",
       created_at: "2026-06-11T00:00:00.000Z",
       updated_at: "2026-06-11T00:00:00.000Z",
     },
@@ -160,6 +161,139 @@ describe("analytics summary", () => {
 
     expect(buildDayTimeline(snapshot, "2026-06-11")[0]?.state).toBe("blocked");
   });
+
+  it("marks break sessions as a separate timeline state", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [
+        {
+          id: "arrival-break",
+          local_date: "2026-06-11",
+          arrived_at: localIso(0, 0),
+          left_at: localIso(0, 15),
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 15),
+        },
+      ],
+      focusSessions: [],
+      sessionReviews: [],
+      sessionReviewLabels: [],
+      breakSessions: [
+        {
+          id: "break-1",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 5,
+          actual_duration_minutes: 5,
+          started_at: localIso(0, 5),
+          completed_at: localIso(0, 10),
+          state: "completed",
+          created_at: localIso(0, 5),
+          updated_at: localIso(0, 10),
+        },
+      ],
+      sleepLogs: [],
+    };
+    const timeline = buildDayTimeline(snapshot, "2026-06-11");
+
+    expect(timeline[0]?.state).toBe("startup_delay");
+    expect(timeline[1]?.state).toBe("break");
+    expect(timeline[2]?.state).toBe("startup_delay");
+  });
+
+  it("prefers startup delay over break when their minute counts tie", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [
+        {
+          id: "arrival-break-delay-tie",
+          local_date: "2026-06-11",
+          arrived_at: localIso(0, 2),
+          left_at: localIso(0, 4),
+          created_at: localIso(0, 2),
+          updated_at: localIso(0, 4),
+        },
+      ],
+      focusSessions: [],
+      sessionReviews: [],
+      sessionReviewLabels: [],
+      breakSessions: [
+        {
+          id: "break-delay-tie",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 2,
+          actual_duration_minutes: 2,
+          started_at: localIso(0, 0),
+          completed_at: localIso(0, 2),
+          state: "completed",
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 2),
+        },
+      ],
+      sleepLogs: [],
+    };
+
+    expect(buildDayTimeline(snapshot, "2026-06-11")[0]?.state).toBe(
+      "startup_delay",
+    );
+  });
+
+  it("keeps arrival waiting time after focus as startup delay", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [
+        {
+          id: "arrival-waiting",
+          local_date: "2026-06-11",
+          arrived_at: localIso(0, 0),
+          left_at: localIso(0, 15),
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 15),
+        },
+      ],
+      focusSessions: [
+        {
+          id: "focus-waiting",
+          arrival_session_id: "arrival-waiting",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 5,
+          actual_duration_minutes: 5,
+          started_at: localIso(0, 0),
+          paused_total_seconds: 0,
+          completed_at: localIso(0, 5),
+          state: "reviewed",
+          earned_break_minutes: 0,
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 5),
+        },
+      ],
+      sessionReviews: [
+        {
+          id: "review-waiting",
+          focus_session_id: "focus-waiting",
+          status_label_id: "status-completed",
+          attention_switch_count: 0,
+          created_at: localIso(0, 5),
+          updated_at: localIso(0, 5),
+        },
+      ],
+      sessionReviewLabels: [
+        {
+          id: "review-label-waiting",
+          review_id: "review-waiting",
+          label_id: "blocker-none",
+          label_type: "blocker",
+          created_at: localIso(0, 5),
+        },
+      ],
+      breakSessions: [],
+      sleepLogs: [],
+    };
+    const timeline = buildDayTimeline(snapshot, "2026-06-11");
+
+    expect(timeline[0]?.state).toBe("focus");
+    expect(timeline[1]?.state).toBe("startup_delay");
+    expect(timeline[2]?.state).toBe("startup_delay");
+  });
 });
 
 function localIso(hour: number, minute: number) {
@@ -180,6 +314,7 @@ function createBoundaryTimelineSnapshot({
         id: "arrival-boundary",
         local_date: "2026-06-11",
         arrived_at: localIso(0, 0),
+        left_at: localIso(0, 5),
         created_at: localIso(0, 0),
         updated_at: localIso(0, 0),
       },

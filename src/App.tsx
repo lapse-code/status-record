@@ -1555,7 +1555,7 @@ function AnalyticsView({ snapshot }: { snapshot: AppSnapshot }) {
             <YAxis />
             <Tooltip />
             <Bar dataKey="focusMinutes" fill="#2f855a" name="学习分钟" />
-            <Bar dataKey="startupDelayMinutes" fill="#b7791f" name="启动延迟" />
+            <Bar dataKey="startupDelayMinutes" fill="#e05c54" name="启动延迟" />
           </BarChart>
         </ResponsiveContainer>
       </section>
@@ -1766,6 +1766,10 @@ function TimelineLegend({
         延迟 {counts.startup_delay}
       </span>
       <span>
+        <i className="day-dot break" />
+        休息 {counts.break}
+      </span>
+      <span>
         <i className="day-dot focus" />
         学习 {counts.focus}
       </span>
@@ -1837,7 +1841,7 @@ function countTimelineCells(cells: DayTimelineCell[]) {
       result[cell.state] += 1;
       return result;
     },
-    { empty: 0, startup_delay: 0, focus: 0, blocked: 0 },
+    { empty: 0, startup_delay: 0, break: 0, focus: 0, blocked: 0 },
   );
 }
 
@@ -1869,6 +1873,10 @@ function useElementWidth<T extends HTMLElement>() {
 function timelineCellLabel(state: DayTimelineCell["state"]) {
   if (state === "startup_delay") {
     return "启动延迟";
+  }
+
+  if (state === "break") {
+    return "休息";
   }
 
   if (state === "blocked") {
@@ -2100,19 +2108,11 @@ function LabelRow({
 }
 
 function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
-  const [filter, setFilter] = useState<DetailFilter>(null);
-  const labelsById = new Map(snapshot.labels.map((label) => [label.id, label]));
   const reviewsByFocusId = new Map(
     snapshot.sessionReviews
       .filter((review) => !review.deleted_at)
       .map((review) => [review.focus_session_id, review]),
   );
-  const reviewLabelsByReviewId = new Map<Id, AppSnapshot["sessionReviewLabels"]>();
-  snapshot.sessionReviewLabels.forEach((relation) => {
-    const relations = reviewLabelsByReviewId.get(relation.review_id) ?? [];
-    relations.push(relation);
-    reviewLabelsByReviewId.set(relation.review_id, relations);
-  });
   const entries = snapshot.focusSessions
     .filter((session) => session.state === "reviewed")
     .sort(
@@ -2122,42 +2122,16 @@ function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
     )
     .map((session) => {
       const review = reviewsByFocusId.get(session.id);
-      const reviewLabels = review ? reviewLabelsByReviewId.get(review.id) ?? [] : [];
-      const productLabelIds = reviewLabels
-        .filter((relation) => relation.label_type === "product")
-        .map((relation) => relation.label_id);
-      const blockerLabelIds = reviewLabels
-        .filter((relation) => relation.label_type === "blocker")
-        .map((relation) => relation.label_id);
 
       return {
         session,
         review,
-        statusLabelId: review?.status_label_id,
         statusLabelName: review
           ? labelNameById(snapshot.labels, review.status_label_id)
           : "未复盘",
-        productLabelIds,
-        productLabelNames: productLabelIds.map((id) => labelsById.get(id)?.name).filter(Boolean),
-        blockerLabelIds,
-        blockerLabelNames: blockerLabelIds.map((id) => labelsById.get(id)?.name).filter(Boolean),
       };
     });
-  const filterOptions = buildRecentFilterOptions(entries, labelsById).slice(0, 8);
-  const filteredEntries = filter
-    ? entries.filter((entry) => {
-        if (filter.type === "session_status") {
-          return entry.statusLabelId === filter.id;
-        }
-
-        if (filter.type === "product") {
-          return entry.productLabelIds.includes(filter.id);
-        }
-
-        return entry.blockerLabelIds.includes(filter.id);
-      })
-    : entries;
-  const recent = filteredEntries.slice(0, 5);
+  const recent = entries.slice(0, 5);
 
   return (
     <section className="panel recent-panel">
@@ -2168,37 +2142,6 @@ function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
         </div>
         <RotateCcw size={22} />
       </div>
-      {entries.length > 0 ? (
-        <div className="recent-filter-bar" aria-label="最近记录筛选">
-          <button
-            className={!filter ? "filter-chip selected" : "filter-chip"}
-            type="button"
-            onClick={() => setFilter(null)}
-          >
-            全部
-          </button>
-          {filterOptions.map((option) => (
-            <button
-              key={`${option.type}-${option.id}`}
-              className={
-                filter?.type === option.type && filter.id === option.id
-                  ? "filter-chip selected"
-                  : "filter-chip"
-              }
-              type="button"
-              onClick={() =>
-                setFilter((current) =>
-                  current?.type === option.type && current.id === option.id
-                    ? null
-                    : { type: option.type, id: option.id },
-                )
-              }
-            >
-              {option.name} {option.count}
-            </button>
-          ))}
-        </div>
-      ) : null}
       {recent.length > 0 ? (
         <ul className="recent-list">
           {recent.map((entry) => {
@@ -2214,61 +2157,10 @@ function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
           })}
         </ul>
       ) : (
-        <p className="empty-text">
-          {entries.length > 0 ? "当前筛选下没有记录。" : "完成第一轮复盘后，这里会显示记录。"}
-        </p>
+        <p className="empty-text">完成第一轮复盘后，这里会显示记录。</p>
       )}
     </section>
   );
-}
-
-function buildRecentFilterOptions(
-  entries: {
-    statusLabelId?: Id;
-    productLabelIds: Id[];
-    blockerLabelIds: Id[];
-  }[],
-  labelsById: Map<Id, LabelRecord>,
-) {
-  const options = new Map<
-    string,
-    { type: LabelType; id: Id; name: string; count: number }
-  >();
-
-  entries.forEach((entry) => {
-    if (entry.statusLabelId) {
-      incrementRecentFilterOption(options, labelsById, "session_status", entry.statusLabelId);
-    }
-    entry.productLabelIds.forEach((id) =>
-      incrementRecentFilterOption(options, labelsById, "product", id),
-    );
-    entry.blockerLabelIds.forEach((id) =>
-      incrementRecentFilterOption(options, labelsById, "blocker", id),
-    );
-  });
-
-  return Array.from(options.values()).sort((a, b) => b.count - a.count);
-}
-
-function incrementRecentFilterOption(
-  options: Map<string, { type: LabelType; id: Id; name: string; count: number }>,
-  labelsById: Map<Id, LabelRecord>,
-  type: LabelType,
-  id: Id,
-) {
-  const label = labelsById.get(id);
-  if (!label) {
-    return;
-  }
-
-  const key = `${type}-${id}`;
-  const existing = options.get(key);
-  if (existing) {
-    existing.count += 1;
-    return;
-  }
-
-  options.set(key, { type, id, name: label.name, count: 1 });
 }
 
 function getActiveFocusSession(

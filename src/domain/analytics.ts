@@ -26,12 +26,20 @@ const dayTimelineSlotMinutes = 5;
 const dayTimelineHours = 24;
 const dayTimelineSlotsPerHour = 60 / dayTimelineSlotMinutes;
 const dayTimelineMinutes = dayTimelineHours * 60;
-const timelineStates = ["empty", "startup_delay", "focus", "blocked"] as const;
-const timelineStatePriority: Record<DayTimelineCellState, number> = {
+const timelineStates = ["empty", "startup_delay", "break", "focus", "blocked"] as const;
+const timelineLayerPriority: Record<DayTimelineCellState, number> = {
   empty: 0,
   startup_delay: 1,
-  focus: 2,
-  blocked: 3,
+  break: 2,
+  focus: 3,
+  blocked: 4,
+};
+const timelineTiePriority: Record<DayTimelineCellState, number> = {
+  empty: 0,
+  break: 1,
+  startup_delay: 2,
+  focus: 3,
+  blocked: 4,
 };
 
 export function getAnalyticsRange(
@@ -154,6 +162,7 @@ export function buildAnalyticsSummary(
 export function buildDayTimeline(
   snapshot: AppSnapshot,
   localDate: LocalDate,
+  now: Date = new Date(),
 ): DayTimelineCell[] {
   const minuteStates: DayTimelineCellState[] =
     Array<DayTimelineCellState>(dayTimelineMinutes).fill("empty");
@@ -196,24 +205,39 @@ export function buildDayTimeline(
   snapshot.arrivalSessions
     .filter((arrival) => !arrival.deleted_at && arrival.local_date === localDate)
     .forEach((arrival) => {
-      const startup = computeStartupDelayForArrival(arrival, snapshot.focusSessions);
-      if (startup.status !== "started" || !startup.firstFocusSessionId) {
-        return;
-      }
-
-      const firstFocus = snapshot.focusSessions.find(
-        (session) => session.id === startup.firstFocusSessionId,
-      );
-      if (!firstFocus) {
-        return;
-      }
-
       markTimelineSegment(
         minuteStates,
         localDate,
         arrival.arrived_at,
-        firstFocus.started_at,
+        arrival.left_at ?? now.toISOString(),
         "startup_delay",
+      );
+    });
+
+  snapshot.breakSessions
+    .filter(
+      (session) =>
+        session.state !== "canceled" &&
+        session.local_date === localDate,
+    )
+    .forEach((session) => {
+      const start = new Date(session.started_at);
+      const plannedEnd = new Date(start);
+      plannedEnd.setMinutes(
+        start.getMinutes() + session.planned_duration_minutes,
+      );
+      const end =
+        session.completed_at ??
+        (session.state === "running"
+          ? new Date(Math.min(now.getTime(), plannedEnd.getTime())).toISOString()
+          : plannedEnd.toISOString());
+
+      markTimelineSegment(
+        minuteStates,
+        localDate,
+        session.started_at,
+        end,
+        "break",
       );
     });
 
@@ -393,6 +417,7 @@ function selectTimelineCellState(states: DayTimelineCellState[]) {
   const counts: Record<DayTimelineCellState, number> = {
     empty: 0,
     startup_delay: 0,
+    break: 0,
     focus: 0,
     blocked: 0,
   };
@@ -408,7 +433,7 @@ function selectTimelineCellState(states: DayTimelineCellState[]) {
 
     if (
       counts[state] === counts[winner] &&
-      timelineStatePriority[state] > timelineStatePriority[winner]
+      timelineTiePriority[state] > timelineTiePriority[winner]
     ) {
       return state;
     }
@@ -445,7 +470,7 @@ function shouldKeepTimelineState(
   currentState: DayTimelineCellState,
   nextState: Exclude<DayTimelineCellState, "empty">,
 ): boolean {
-  return timelineStatePriority[currentState] > timelineStatePriority[nextState];
+  return timelineLayerPriority[currentState] > timelineLayerPriority[nextState];
 }
 
 function isBlockedFocusReview(
@@ -482,6 +507,10 @@ function formatMinuteOfDay(minuteOfDay: number): string {
 function timelineStateLabel(state: DayTimelineCellState): string {
   if (state === "startup_delay") {
     return "启动延迟";
+  }
+
+  if (state === "break") {
+    return "休息";
   }
 
   if (state === "blocked") {

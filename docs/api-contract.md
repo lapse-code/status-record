@@ -287,7 +287,12 @@ interface AnalyticsSummary {
 ### buildDayTimeline
 
 ```ts
-type DayTimelineCellState = "empty" | "startup_delay" | "focus" | "blocked";
+type DayTimelineCellState =
+  | "empty"
+  | "startup_delay"
+  | "break"
+  | "focus"
+  | "blocked";
 
 interface DayTimelineCell {
   id: string;
@@ -306,8 +311,9 @@ interface DayTimelineCell {
 - 每 5 分钟一个点，源数据固定按一天 288 个 cell 输出。
 - UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
 - 每个 5 分钟 cell 内部先按 1 分钟粒度累计状态，再用多数分钟决定 cell 状态。
-- 如果同一个 cell 内多个非空状态分钟数打平，用 `blocked > focus > startup_delay > empty` 的优先级决定颜色；空白只有在分钟数最多时才成为最终状态。
-- `startup_delay` 来自 arrival 到第一轮 focus start 的时间段。
+- 如果同一个 cell 内多个状态分钟数打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在分钟数最多时才成为最终状态。
+- `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间。
+- `break` 来自 `break_sessions` 的实际休息时间，显示为独立颜色，不计入启动延迟颜色。
 - `focus` 来自已复盘且没有阻塞/被打断的 focus session。
 - `blocked` 来自有非“无”阻塞标签，或状态为“被打断/卡住”的 focus session。
 - UI 可以为任意 `LocalDate` 调用此函数；日期导航不限制历史范围。

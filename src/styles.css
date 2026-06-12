@@ -608,6 +608,10 @@ legend {
   background: #e05c54;
 }
 
+.day-dot.break {
+  background: #63b3ed;
+}
+
 .day-dot.focus {
   background: #2f855a;
 }
@@ -1689,13 +1693,6 @@ textarea:focus {
   text-align: center;
 }
 
-.recent-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
 .break-completion-modal {
   max-width: 520px;
 }
@@ -1708,25 +1705,6 @@ textarea:focus {
 
 .button-row.two-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.filter-chip {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #d9e2db;
-  border-radius: 999px;
-  padding: 0 12px;
-  color: #42524b;
-  background: #ffffff;
-  font-weight: 800;
-}
-
-.filter-chip.selected {
-  border-color: #218653;
-  color: #16633f;
-  background: #eef8f1;
 }
 
 @media (max-width: 1120px) {
