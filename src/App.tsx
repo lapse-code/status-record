@@ -982,11 +982,11 @@ function SleepPanel({
               onKeyDown={(event) => {
                 if (event.key === "ArrowUp") {
                   event.preventDefault();
-                  applySleepDuration(sleepDurationMinutes - sleepStepMinutes);
+                  applySleepDuration(sleepDurationMinutes + sleepStepMinutes);
                 }
                 if (event.key === "ArrowDown") {
                   event.preventDefault();
-                  applySleepDuration(sleepDurationMinutes + sleepStepMinutes);
+                  applySleepDuration(sleepDurationMinutes - sleepStepMinutes);
                 }
                 if (event.key === "Enter") {
                   commitSleepDurationInput();
@@ -995,16 +995,16 @@ function SleepPanel({
             />
             <div className="stepper-buttons">
               <button
-                aria-label="减少睡眠时长 15 分钟"
+                aria-label="增加睡眠时长 15 分钟"
                 type="button"
-                onClick={() => applySleepDuration(sleepDurationMinutes - sleepStepMinutes)}
+                onClick={() => applySleepDuration(sleepDurationMinutes + sleepStepMinutes)}
               >
                 <ChevronUp size={16} />
               </button>
               <button
-                aria-label="增加睡眠时长 15 分钟"
+                aria-label="减少睡眠时长 15 分钟"
                 type="button"
-                onClick={() => applySleepDuration(sleepDurationMinutes + sleepStepMinutes)}
+                onClick={() => applySleepDuration(sleepDurationMinutes - sleepStepMinutes)}
               >
                 <ChevronDown size={16} />
               </button>
@@ -1023,11 +1023,11 @@ function SleepPanel({
               onKeyDown={(event) => {
                 if (event.key === "ArrowUp") {
                   event.preventDefault();
-                  applyEnergyScore(energyScore - 1);
+                  applyEnergyScore(energyScore + 1);
                 }
                 if (event.key === "ArrowDown") {
                   event.preventDefault();
-                  applyEnergyScore(energyScore + 1);
+                  applyEnergyScore(energyScore - 1);
                 }
                 if (event.key === "Enter") {
                   commitEnergyInput();
@@ -1037,16 +1037,16 @@ function SleepPanel({
             <span className="stepper-suffix">/ 5</span>
             <div className="stepper-buttons">
               <button
-                aria-label="减少精力"
+                aria-label="增加精力"
                 type="button"
-                onClick={() => applyEnergyScore(energyScore - 1)}
+                onClick={() => applyEnergyScore(energyScore + 1)}
               >
                 <ChevronUp size={16} />
               </button>
               <button
-                aria-label="增加精力"
+                aria-label="减少精力"
                 type="button"
-                onClick={() => applyEnergyScore(energyScore + 1)}
+                onClick={() => applyEnergyScore(energyScore - 1)}
               >
                 <ChevronDown size={16} />
               </button>
