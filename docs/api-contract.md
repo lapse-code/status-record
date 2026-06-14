@@ -389,10 +389,10 @@ interface DayTimelineCell {
 - 点阵按每条源记录自己的 `time_zone` 把 UTC 区间映射到目标 `LocalDate` 的本地分钟；同一目标日期中不同记录可以来自不同时区。
 - 旧数据缺少 `time_zone` 时使用 `Asia/Tokyo` 兼容。
 - UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
-- 每个 5 分钟 cell 内部先按 1 分钟粒度累计状态，再用多数分钟决定 cell 状态。
-- 如果同一个 cell 内多个状态分钟数打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在分钟数最多时才成为最终状态。
+- 每个 5 分钟 cell 内部先按秒级状态累计，再用多数时长决定 cell 状态。
+- 如果同一个 cell 内多个状态时长打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在时长最多时才成为最终状态。
 - `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间，UI 显示为“拖延”。
-- `break` 来自 `break_sessions` 的实际休息时间，UI 显示为“休息”。
+- `break` 来自 `break_sessions` 的休息时间，UI 显示为“休息”；自然结束的休息按实际扣除/计划分钟封顶，避免浏览器回调延迟把 5 分钟休息画成超过 5 分钟。
 - `focus` 来自未取消 focus session 的有效专注片段，UI 显示为“专注”；运行中的 `focus_segments` 用 `now` 作为临时结束时间，但不能超过本轮计划专注时长预算；完成但未复盘的 session 先按专注显示。
 - `blocked` 只来自已复盘且有非“无”的不专注原因标签，或状态为“被打断/卡住”的 focus session，UI 显示为“不专注”。
 - 取消的 focus session 和 canceled focus segment 不进入点阵；如果到岗仍打开，取消后的时间继续由 arrival 区间显示为拖延。

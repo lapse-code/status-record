@@ -24,15 +24,16 @@ import { computeStartupDelayForArrival } from "./startup-delay";
 import {
   getLocalDateEndUtcMs,
   getLocalDateStartUtcMs,
-  getLocalMinuteOfDay,
+  getZonedDateTimeParts,
   normalizeTimeZone,
   toLocalDate,
 } from "./time";
 
 const dayTimelineSlotMinutes = 5;
+const dayTimelineSlotSeconds = dayTimelineSlotMinutes * 60;
 const dayTimelineHours = 24;
 const dayTimelineSlotsPerHour = 60 / dayTimelineSlotMinutes;
-const dayTimelineMinutes = dayTimelineHours * 60;
+const dayTimelineSeconds = dayTimelineHours * 60 * 60;
 const timelineStates = ["empty", "startup_delay", "break", "focus", "blocked"] as const;
 const timelineLayerPriority: Record<DayTimelineCellState, number> = {
   empty: 0,
@@ -171,8 +172,8 @@ export function buildDayTimeline(
   localDate: LocalDate,
   now: Date = new Date(),
 ): DayTimelineCell[] {
-  const minuteStates: DayTimelineCellState[] =
-    Array<DayTimelineCellState>(dayTimelineMinutes).fill("empty");
+  const secondStates: DayTimelineCellState[] =
+    Array<DayTimelineCellState>(dayTimelineSeconds).fill("empty");
   const cells: DayTimelineCell[] = Array.from({ length: dayTimelineHours * dayTimelineSlotsPerHour }, (_, index) => {
     const hour = Math.floor(index / dayTimelineSlotsPerHour);
     const slot = index % dayTimelineSlotsPerHour;
@@ -212,7 +213,7 @@ export function buildDayTimeline(
     .filter((arrival) => !arrival.deleted_at)
     .forEach((arrival) => {
       markTimelineSegment(
-        minuteStates,
+        secondStates,
         localDate,
         arrival.arrived_at,
         arrival.left_at ?? now.toISOString(),
@@ -228,18 +229,10 @@ export function buildDayTimeline(
     )
     .forEach((session) => {
       const start = new Date(session.started_at);
-      const plannedEnd = new Date(start);
-      plannedEnd.setMinutes(
-        start.getMinutes() + session.planned_duration_minutes,
-      );
-      const end =
-        session.completed_at ??
-        (session.state === "running"
-          ? new Date(Math.min(now.getTime(), plannedEnd.getTime())).toISOString()
-          : plannedEnd.toISOString());
+      const end = getTimelineBreakEnd(session, start, now);
 
       markTimelineSegment(
-        minuteStates,
+        secondStates,
         localDate,
         session.started_at,
         end,
@@ -286,7 +279,7 @@ export function buildDayTimeline(
         remainingFocusBudgetMs -= cappedEndMs - startMs;
 
         markTimelineSegment(
-          minuteStates,
+          secondStates,
           localDate,
           segment.started_at,
           new Date(cappedEndMs).toISOString(),
@@ -304,7 +297,7 @@ export function buildDayTimeline(
     }
 
     markTimelineSegment(
-      minuteStates,
+      secondStates,
       localDate,
       session.started_at,
       end,
@@ -313,7 +306,7 @@ export function buildDayTimeline(
     );
   });
 
-  applyMinuteStatesToTimelineCells(cells, minuteStates);
+  applySecondStatesToTimelineCells(cells, secondStates);
 
   return cells;
 }
@@ -426,7 +419,7 @@ function isDateInRange(date: LocalDate, range: AnalyticsRange): boolean {
 }
 
 function markTimelineSegment(
-  minuteStates: DayTimelineCellState[],
+  secondStates: DayTimelineCellState[],
   localDate: LocalDate,
   startIso: string,
   endIso: string,
@@ -445,25 +438,52 @@ function markTimelineSegment(
     return;
   }
 
-  const firstMinuteMs = Math.floor(startMs / 60_000) * 60_000;
-  for (let ms = firstMinuteMs; ms < endMs; ms += 60_000) {
-    const minuteDate = new Date(ms);
-    if (toLocalDate(minuteDate, zone) !== localDate) {
+  const firstSecondMs = Math.ceil(startMs / 1_000) * 1_000;
+  for (let ms = firstSecondMs; ms < endMs; ms += 1_000) {
+    const secondDate = new Date(ms);
+    if (toLocalDate(secondDate, zone) !== localDate) {
       continue;
     }
 
-    const index = getLocalMinuteOfDay(minuteDate, zone);
-    if (index < 0 || index >= minuteStates.length) {
+    const index = getLocalSecondOfDay(secondDate, zone);
+    if (index < 0 || index >= secondStates.length) {
       continue;
     }
 
-    const currentState = minuteStates[index];
+    const currentState = secondStates[index];
     if (!currentState || shouldKeepTimelineState(currentState, state)) {
       continue;
     }
 
-    minuteStates[index] = state;
+    secondStates[index] = state;
   }
+}
+
+function getTimelineBreakEnd(
+  session: AppSnapshot["breakSessions"][number],
+  start: Date,
+  now: Date,
+): string {
+  const plannedEnd = new Date(
+    start.getTime() +
+      Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000,
+  );
+
+  if (session.state === "running") {
+    return new Date(Math.min(now.getTime(), plannedEnd.getTime())).toISOString();
+  }
+
+  if (session.state === "completed" && !session.ended_early) {
+    const durationMinutes =
+      typeof session.actual_duration_minutes === "number"
+        ? session.actual_duration_minutes
+        : session.planned_duration_minutes;
+    return new Date(
+      start.getTime() + Math.max(0, Math.round(durationMinutes)) * 60_000,
+    ).toISOString();
+  }
+
+  return session.completed_at ?? plannedEnd.toISOString();
 }
 
 function getTimelineFocusSegmentEnd(
@@ -512,19 +532,25 @@ function getPlannedFocusBudgetMs(session: FocusSessionRecord): number {
   return Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000;
 }
 
-function applyMinuteStatesToTimelineCells(
+function applySecondStatesToTimelineCells(
   cells: DayTimelineCell[],
-  minuteStates: DayTimelineCellState[],
+  secondStates: DayTimelineCellState[],
 ) {
   cells.forEach((cell) => {
-    const statesInCell = minuteStates.slice(
-      cell.minuteOfDay,
-      cell.minuteOfDay + dayTimelineSlotMinutes,
+    const cellStartSecond = cell.minuteOfDay * 60;
+    const statesInCell = secondStates.slice(
+      cellStartSecond,
+      cellStartSecond + dayTimelineSlotSeconds,
     );
     const state = selectTimelineCellState(statesInCell);
     cell.state = state;
     cell.title = `${cell.timeLabel} ${timelineStateLabel(state)}`;
   });
+}
+
+function getLocalSecondOfDay(date: Date, timeZone: string): number {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  return parts.hour * 60 * 60 + parts.minute * 60 + parts.second;
 }
 
 function selectTimelineCellState(states: DayTimelineCellState[]) {

@@ -139,7 +139,7 @@ describe("analytics summary", () => {
     expect(timeline.filter((cell) => cell.state === "blocked")).toHaveLength(0);
   });
 
-  it("uses the majority minute state inside each five-minute timeline cell", () => {
+  it("uses the majority duration state inside each five-minute timeline cell", () => {
     const oneMinuteDelaySnapshot = createBoundaryTimelineSnapshot({
       focusStartMinute: 1,
       focusMinutes: 4,
@@ -157,7 +157,7 @@ describe("analytics summary", () => {
     );
   });
 
-  it("uses state priority only when five-minute timeline minute counts tie", () => {
+  it("uses state priority only when five-minute timeline durations tie", () => {
     const snapshot = createTieTimelineSnapshot();
 
     expect(buildDayTimeline(snapshot, "2026-06-11")[0]?.state).toBe("blocked");
@@ -201,7 +201,39 @@ describe("analytics summary", () => {
     expect(timeline[2]?.state).toBe("startup_delay");
   });
 
-  it("prefers startup delay over break when their minute counts tie", () => {
+  it("caps naturally completed break display to the used break minutes", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [],
+      focusSessions: [],
+      sessionReviews: [],
+      sessionReviewLabels: [],
+      breakSessions: [
+        {
+          id: "break-cross-boundary",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 5,
+          actual_duration_minutes: 5,
+          started_at: localIsoWithSecond(0, 37, 21),
+          completed_at: localIsoWithSecond(0, 42, 59),
+          state: "completed",
+          ended_early: false,
+          created_at: localIsoWithSecond(0, 37, 21),
+          updated_at: localIsoWithSecond(0, 42, 59),
+        },
+      ],
+      sleepLogs: [],
+    };
+    const timeline = buildDayTimeline(snapshot, "2026-06-11");
+
+    expect(timeline[7]?.timeLabel).toBe("00:35");
+    expect(timeline[8]?.timeLabel).toBe("00:40");
+    expect(timeline[7]?.state).toBe("break");
+    expect(timeline[8]?.state).toBe("empty");
+    expect(timeline.filter((cell) => cell.state === "break")).toHaveLength(1);
+  });
+
+  it("prefers startup delay over break when their durations tie", () => {
     const snapshot: AppSnapshot = {
       ...baseSnapshot,
       arrivalSessions: [
@@ -797,6 +829,12 @@ describe("analytics summary", () => {
 
 function localIso(hour: number, minute: number) {
   return new Date(Date.UTC(2026, 5, 10, 15 + hour, minute, 0, 0)).toISOString();
+}
+
+function localIsoWithSecond(hour: number, minute: number, second: number) {
+  return new Date(
+    Date.UTC(2026, 5, 10, 15 + hour, minute, second, 0),
+  ).toISOString();
 }
 
 function createBoundaryTimelineSnapshot({
