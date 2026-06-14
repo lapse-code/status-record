@@ -233,6 +233,12 @@ export interface DayTimelineCell {
   minuteOfDay: number;
   timeLabel: string;
   state: DayTimelineCellState;
+  durationMsByState: Record<DayTimelineCellState, number>;
+  parts: Array<{
+    state: DayTimelineCellState;
+    startRatio: number;
+    endRatio: number;
+  }>;
   title: string;
 }
 

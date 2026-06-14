@@ -45,6 +45,7 @@ import {
   buildAnalyticsSummary,
   buildDayTimeline,
   getAnalyticsRange,
+  sumTimelineCellDurations,
 } from "./domain/analytics";
 import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
@@ -266,9 +267,10 @@ export default function App() {
     () =>
       buildAnalyticsSummary(
         snapshot,
-        getAnalyticsRange("day", new Date()),
+        getAnalyticsRange("day", now),
+        now,
       ),
-    [snapshot],
+    [now, snapshot],
   );
   const [todayTimelineDate, setTodayTimelineDate] = useState(toLocalDate());
   const todayTimeline = useMemo(
@@ -1547,8 +1549,11 @@ function WeekTimelineDay({
   timeZoneLabel: string | null;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
-  const { columns, mode } = getTimelineLayout(cells, panelWidth, 720);
-  const counts = countTimelineCells(cells);
+  const { columns, durationMsByState, mode } = getTimelineLayout(
+    cells,
+    panelWidth,
+    720,
+  );
   const weekday = formatWeekday(date);
 
   return (
@@ -1569,7 +1574,7 @@ function WeekTimelineDay({
             {timeZoneLabel ? ` · ${timeZoneLabel}` : ""}
           </p>
         </div>
-        <TimelineLegend counts={counts} />
+        <TimelineLegend durationMsByState={durationMsByState} />
       </div>
       <TimelineMatrix columns={columns} date={date} />
     </article>
@@ -1589,8 +1594,8 @@ function AnalyticsView({
     null,
   );
   const summary = useMemo<AnalyticsSummary>(
-    () => buildAnalyticsSummary(snapshot, getAnalyticsRange(grain, new Date())),
-    [grain, snapshot],
+    () => buildAnalyticsSummary(snapshot, getAnalyticsRange(grain, now), now),
+    [grain, now, snapshot],
   );
   const suggestedTimelineDate = useMemo(
     () => getTimelineDate(summary.range, snapshot),
@@ -1869,7 +1874,7 @@ function DayTimelinePanel({
   onToday: () => void;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
-  const { columns, counts, mode } = getTimelineLayout(cells, panelWidth);
+  const { columns, durationMsByState, mode } = getTimelineLayout(cells, panelWidth);
 
   return (
     <section
@@ -1912,7 +1917,7 @@ function DayTimelinePanel({
               今天
             </button>
           </div>
-          <TimelineLegend counts={counts} />
+          <TimelineLegend durationMsByState={durationMsByState} />
         </div>
       </div>
       <TimelineMatrix columns={columns} date={date} />
@@ -1921,27 +1926,27 @@ function DayTimelinePanel({
 }
 
 function TimelineLegend({
-  counts,
+  durationMsByState,
 }: {
-  counts: Record<DayTimelineCell["state"], number>;
+  durationMsByState: Record<DayTimelineCell["state"], number>;
 }) {
   return (
     <div className="dot-legend" aria-label="日点阵图例">
       <span>
         <i className="day-dot startup_delay" />
-        拖延 {counts.startup_delay}
+        拖延 {formatTimelineLegendDuration(durationMsByState.startup_delay)}
       </span>
       <span>
         <i className="day-dot break" />
-        休息 {counts.break}
+        休息 {formatTimelineLegendDuration(durationMsByState.break)}
       </span>
       <span>
         <i className="day-dot focus" />
-        专注 {counts.focus}
+        专注 {formatTimelineLegendDuration(durationMsByState.focus)}
       </span>
       <span>
         <i className="day-dot blocked" />
-        不专注 {counts.blocked}
+        不专注 {formatTimelineLegendDuration(durationMsByState.blocked)}
       </span>
     </div>
   );
@@ -1964,6 +1969,7 @@ function TimelineMatrix({
                 key={cell.id}
                 aria-label={`${cell.timeLabel} ${timelineCellLabel(cell.state)}`}
                 className={`day-dot ${cell.state}`}
+                style={getTimelineCellStyle(cell)}
                 title={cell.title}
               />
             ))}
@@ -1996,19 +2002,52 @@ function getTimelineLayout(
           columnIndex * slotsPerColumn + slotsPerColumn,
         ),
     ),
-    counts: countTimelineCells(cells),
+    durationMsByState: sumTimelineCellDurations(cells),
     mode,
   };
 }
 
-function countTimelineCells(cells: DayTimelineCell[]) {
-  return cells.reduce<Record<DayTimelineCell["state"], number>>(
-    (result, cell) => {
-      result[cell.state] += 1;
-      return result;
-    },
-    { empty: 0, startup_delay: 0, break: 0, focus: 0, blocked: 0 },
-  );
+function formatTimelineLegendDuration(durationMs: number) {
+  return formatMinutes(durationMs / 60_000);
+}
+
+function getTimelineCellStyle(cell: DayTimelineCell): React.CSSProperties {
+  return { background: getTimelineCellBackground(cell) };
+}
+
+function getTimelineCellBackground(cell: DayTimelineCell): string {
+  if (cell.parts.length <= 1) {
+    return timelineColorCssVar(cell.parts[0]?.state ?? cell.state);
+  }
+
+  const stops = cell.parts.flatMap((part) => {
+    const color = timelineColorCssVar(part.state);
+    const start = `${Math.max(0, Math.min(1, part.startRatio)) * 100}%`;
+    const end = `${Math.max(0, Math.min(1, part.endRatio)) * 100}%`;
+    return [`${color} ${start}`, `${color} ${end}`];
+  });
+
+  return `linear-gradient(to bottom, ${stops.join(", ")})`;
+}
+
+function timelineColorCssVar(state: DayTimelineCell["state"]): string {
+  if (state === "startup_delay") {
+    return "var(--timeline-color-startup-delay)";
+  }
+
+  if (state === "break") {
+    return "var(--timeline-color-break)";
+  }
+
+  if (state === "focus") {
+    return "var(--timeline-color-focus)";
+  }
+
+  if (state === "blocked") {
+    return "var(--timeline-color-blocked)";
+  }
+
+  return "var(--timeline-color-empty)";
 }
 
 function useElementWidth<T extends HTMLElement>() {

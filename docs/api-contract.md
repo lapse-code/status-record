@@ -212,9 +212,10 @@ interface StartupDelayResult {
 
 规则：
 
+- 这是兼容和诊断用的底层启动延迟工具，不是 Today/Analytics 中“拖延”统计的来源。
 - 有第一轮 focus session 时，`startupDelayMinutes = firstFocus.startedAt - arrivedAt`。
 - 没有开始番茄钟时不伪造 0。
-- UI 展示时 `startupDelayMinutes` 显示为“拖延”。
+- UI 中的“拖延”统计必须使用 `buildDayTimeline` 的 `startup_delay` 真实时长汇总，包含第一轮前、暂停中、完成/休息后等待下一轮的全部在岗等待时间。
 
 ## Sleep Service
 
@@ -355,7 +356,8 @@ interface AnalyticsSummary {
 
 规则：
 
-- 统计必须基于已完成并已复盘的 focus sessions。
+- 专注、切换、状态和标签统计基于已完成并已复盘的 focus sessions。
+- `totalStartupDelayMinutes` 和 trend 中的 `startupDelayMinutes` 必须从 `buildDayTimeline` 的 `startup_delay` 真实时长汇总得到；UI 中称为“拖延”，并且必须等于点阵红色真实时长总和。
 - 统计日期使用记录保存的 `local_date`；不要用当前设备时区重新计算历史记录日期。
 - 睡眠统计按日期 join，不要求每个学习日都有睡眠记录。
 - 复盘明细必须保留状态、产物、不专注原因的标签 id 和名称，用于统计页按状态、产物或不专注原因筛选“记录明细”。
@@ -378,6 +380,12 @@ interface DayTimelineCell {
   minuteOfDay: number;
   timeLabel: string; // HH:mm
   state: DayTimelineCellState;
+  durationMsByState: Record<DayTimelineCellState, number>;
+  parts: Array<{
+    state: DayTimelineCellState;
+    startRatio: number; // 0-1 inside this 5 minute cell
+    endRatio: number; // 0-1 inside this 5 minute cell
+  }>;
   title: string;
 }
 ```
@@ -389,7 +397,9 @@ interface DayTimelineCell {
 - 点阵按每条源记录自己的 `time_zone` 把 UTC 区间映射到目标 `LocalDate` 的本地分钟；同一目标日期中不同记录可以来自不同时区。
 - 旧数据缺少 `time_zone` 时使用 `Asia/Tokyo` 兼容。
 - UI 可根据容器宽度重新分列：宽容器每列 30 分钟，窄容器每列 1 小时；这不改变 cell 的时间顺序和统计口径。
-- 每个 5 分钟 cell 内部先按秒级状态累计，再用多数时长决定 cell 状态。
+- 每个 5 分钟 cell 内部按源记录和 cell 的真实重叠毫秒数累计到 `durationMsByState`，并输出 `parts` 给 UI 渲染混合分段；不要为了限制颜色点数丢弃跨 cell 的真实时间。
+- `state` 只是 cell 的主状态，用于无障碍标签和兜底样式；图例、统计和“今日拖延”必须使用 `durationMsByState` 的真实时长汇总，不使用主状态点数。
+- 每个 5 分钟 cell 的主状态用多数时长决定。
 - 如果同一个 cell 内多个状态时长打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在时长最多时才成为最终状态。
 - `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间，UI 显示为“拖延”。
 - `break` 来自 `break_sessions` 的休息时间，UI 显示为“休息”；自然结束的休息按实际扣除/计划分钟封顶，避免浏览器回调延迟把 5 分钟休息画成超过 5 分钟。

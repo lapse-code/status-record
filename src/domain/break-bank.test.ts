@@ -74,6 +74,22 @@ describe("break bank rules", () => {
     expect(ledger.progressMinutes).toBe(5);
   });
 
+  it("does not count canceled focus sessions toward daily break credit", () => {
+    const canceled = {
+      ...focusSession("canceled", "2026-06-12", 25),
+      state: "canceled" as const,
+      canceled_at: "2026-06-12T00:20:00.000Z",
+      completed_at: undefined,
+    };
+
+    const ledger = calculateDailyBreakLedger([canceled], [], "2026-06-12");
+
+    expect(ledger.focusCreditMinutes).toBe(0);
+    expect(ledger.earnedMinutes).toBe(0);
+    expect(ledger.balanceMinutes).toBe(0);
+    expect(ledger.progressMinutes).toBe(0);
+  });
+
   it("uses legacy earned transactions only when no focus credit exists", () => {
     expect(
       calculateDailyBreakLedger(

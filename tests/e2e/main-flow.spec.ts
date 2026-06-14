@@ -620,7 +620,7 @@ test("loads demo data into analytics", async ({ page }) => {
       /2026-06-10( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
     ),
   ).toBeVisible();
-  await expect(page.getByText("专注 19")).toBeVisible();
+  await expect(page.getByText("专注 1 小时 35 分钟")).toBeVisible();
   await page.getByRole("button", { name: "前一天" }).click();
   await expect(
     page.getByText(

@@ -130,6 +130,69 @@ describe("analytics summary", () => {
     expect(summary.reviewEntries[0]?.blockerLabelIds).toContain("blocker-none");
   });
 
+  it("uses the timeline red duration as total startup delay", () => {
+    const summary = buildAnalyticsSummary(
+      {
+        ...baseSnapshot,
+        arrivalSessions: [
+          {
+            id: "arrival-after-focus-wait",
+            local_date: "2026-06-11",
+            arrived_at: localIso(0, 0),
+            left_at: localIso(1, 10),
+            created_at: localIso(0, 0),
+            updated_at: localIso(1, 10),
+          },
+        ],
+        focusSessions: [
+          {
+            id: "focus-after-focus-wait",
+            arrival_session_id: "arrival-after-focus-wait",
+            local_date: "2026-06-11",
+            planned_duration_minutes: 25,
+            actual_duration_minutes: 25,
+            started_at: localIso(0, 30),
+            paused_total_seconds: 0,
+            completed_at: localIso(0, 55),
+            state: "reviewed",
+            earned_break_minutes: 5,
+            created_at: localIso(0, 30),
+            updated_at: localIso(0, 55),
+          },
+        ],
+        sessionReviews: [
+          {
+            id: "review-after-focus-wait",
+            focus_session_id: "focus-after-focus-wait",
+            status_label_id: "status-completed",
+            attention_switch_count: 0,
+            created_at: localIso(0, 55),
+            updated_at: localIso(0, 55),
+          },
+        ],
+        sessionReviewLabels: [
+          {
+            id: "review-label-after-focus-wait",
+            review_id: "review-after-focus-wait",
+            label_id: "blocker-none",
+            label_type: "blocker",
+            created_at: localIso(0, 55),
+          },
+        ],
+        breakSessions: [],
+        sleepLogs: [],
+      },
+      {
+        startDate: "2026-06-11",
+        endDate: "2026-06-11",
+        grain: "day",
+      },
+    );
+
+    expect(summary.totalStartupDelayMinutes).toBe(45);
+    expect(summary.trend[0]?.startupDelayMinutes).toBe(45);
+  });
+
   it("builds five-minute daily timeline cells", () => {
     const timeline = buildDayTimeline(baseSnapshot, "2026-06-11");
 
@@ -201,7 +264,7 @@ describe("analytics summary", () => {
     expect(timeline[2]?.state).toBe("startup_delay");
   });
 
-  it("caps naturally completed break display to the used break minutes", () => {
+  it("preserves naturally completed break duration across boundary cells", () => {
     const snapshot: AppSnapshot = {
       ...baseSnapshot,
       arrivalSessions: [
@@ -246,8 +309,15 @@ describe("analytics summary", () => {
     expect(timeline[7]?.timeLabel).toBe("00:35");
     expect(timeline[8]?.timeLabel).toBe("00:40");
     expect(timeline[7]?.state).toBe("break");
-    expect(timeline[8]?.state).toBe("empty");
-    expect(timeline.filter((cell) => cell.state === "break")).toHaveLength(1);
+    expect(
+      Math.round(
+        (timeline[7]!.durationMsByState.break +
+          timeline[8]!.durationMsByState.break) /
+          60_000,
+      ),
+    ).toBe(5);
+    expect(timeline[8]?.durationMsByState.break).toBeGreaterThan(0);
+    expect(timeline[8]?.durationMsByState.startup_delay).toBeGreaterThan(0);
   });
 
   it("prefers startup delay over break when their durations tie", () => {
@@ -659,6 +729,10 @@ describe("analytics summary", () => {
     );
 
     expect(timeline[0]?.state).toBe("startup_delay");
+    expect(timeline[0]?.durationMsByState.focus).toBe(0);
+    expect(Math.round((timeline[0]?.durationMsByState.startup_delay ?? 0) / 60_000)).toBe(
+      5,
+    );
   });
 
   it("marks completed focus as focus while it is waiting for review", () => {

@@ -56,6 +56,18 @@ type TimelineStateRange = {
   state: DayTimelineCellState;
 };
 
+type TimelineDurationMap = Record<DayTimelineCellState, number>;
+
+function createTimelineDurationMap(): TimelineDurationMap {
+  return {
+    empty: 0,
+    startup_delay: 0,
+    break: 0,
+    focus: 0,
+    blocked: 0,
+  };
+}
+
 export function getAnalyticsRange(
   grain: AnalyticsGrain,
   anchorDate: Date = new Date(),
@@ -83,6 +95,7 @@ export function getAnalyticsRange(
 export function buildAnalyticsSummary(
   snapshot: AppSnapshot,
   range: AnalyticsRange,
+  now: Date = new Date(),
 ): AnalyticsSummary {
   const reviewedFocusSessions = snapshot.focusSessions.filter(
     (session) =>
@@ -104,21 +117,22 @@ export function buildAnalyticsSummary(
   const startupResults = rangeArrivalSessions.map((arrival) =>
     computeStartupDelayForArrival(arrival, snapshot.focusSessions),
   );
-  const startupDelays = startupResults
-    .map((result) => result.startupDelayMinutes)
-    .filter((minutes): minutes is number => typeof minutes === "number");
   const sleepLogs = snapshot.sleepLogs.filter(
     (sleep) => !sleep.deleted_at && isDateInRange(sleep.local_date, range),
   );
+  const trend = buildTrend(range, reviewedFocusSessions, reviews, snapshot, now);
 
   const totalFocusMinutes = reviewedFocusSessions.reduce(
     (sum, session) => sum + (session.actual_duration_minutes ?? 0),
     0,
   );
-  const totalStartupDelayMinutes = startupDelays.reduce(
-    (sum, minutes) => sum + minutes,
+  const totalStartupDelayMinutes = trend.reduce(
+    (sum, day) => sum + day.startupDelayMinutes,
     0,
   );
+  const activeDelayDayCount = trend.filter(
+    (day) => day.startupDelayMinutes > 0,
+  ).length;
   const totalAttentionSwitchCount = reviews.reduce(
     (sum, review) => sum + review.attention_switch_count,
     0,
@@ -141,7 +155,7 @@ export function buildAnalyticsSummary(
     totalFocusMinutes,
     totalStartupDelayMinutes,
     averageStartupDelayMinutes:
-      startupDelays.length > 0 ? totalStartupDelayMinutes / startupDelays.length : null,
+      activeDelayDayCount > 0 ? totalStartupDelayMinutes / activeDelayDayCount : null,
     totalAttentionSwitchCount,
     attentionSwitchesPerFocusHour:
       totalFocusMinutes > 0
@@ -160,7 +174,7 @@ export function buildAnalyticsSummary(
         ? sleepLogs.reduce((sum, sleep) => sum + sleep.energy_score, 0) /
           sleepLogs.length
         : null,
-    trend: buildTrend(range, reviewedFocusSessions, reviews, snapshot),
+    trend,
     reviewEntries: buildReviewEntries(
       reviewedFocusSessions,
       reviews,
@@ -197,6 +211,8 @@ export function buildDayTimeline(
       minuteOfDay,
       timeLabel,
       state: "empty" as const,
+      durationMsByState: createTimelineDurationMap(),
+      parts: [{ state: "empty" as const, startRatio: 0, endRatio: 1 }],
       title: `${timeLabel} 空白`,
     };
   });
@@ -241,7 +257,7 @@ export function buildDayTimeline(
     )
     .forEach((session) => {
       const start = new Date(session.started_at);
-      const { end, isLive, maxCells } = getTimelineBreakDisplay(session, start, now);
+      const { end, isLive } = getTimelineBreakDisplay(session, start, now);
 
       markTimelineSegment(
         cellStateRanges,
@@ -251,7 +267,7 @@ export function buildDayTimeline(
         end,
         "break",
         session.time_zone,
-        { isLive, maxCells },
+        { isLive },
       );
     });
 
@@ -337,6 +353,7 @@ function buildTrend(
   focusSessions: FocusSessionRecord[],
   reviews: SessionReviewRecord[],
   snapshot: AppSnapshot,
+  now: Date,
 ): AnalyticsSummary["trend"] {
   const days = eachDayOfInterval({
     start: parseISO(range.startDate),
@@ -350,15 +367,10 @@ function buildTrend(
     const dayFocusSessions = focusSessions.filter(
       (session) => session.local_date === date,
     );
-    const dayArrivalSessions = snapshot.arrivalSessions.filter(
-      (arrival) => arrival.local_date === date && !arrival.deleted_at,
+    const dayTimeline = buildDayTimeline(snapshot, date, now);
+    const startupDelayMinutes = minutesFromTimelineDuration(
+      sumTimelineCellDurations(dayTimeline).startup_delay,
     );
-    const startupDelayMinutes = dayArrivalSessions
-      .map((arrival) =>
-        computeStartupDelayForArrival(arrival, snapshot.focusSessions)
-          .startupDelayMinutes ?? 0,
-      )
-      .reduce((sum, minutes) => sum + minutes, 0);
     const daySleep = snapshot.sleepLogs.find(
       (sleep) => sleep.local_date === date && !sleep.deleted_at,
     );
@@ -447,7 +459,7 @@ function markTimelineSegment(
   endIso: string,
   state: Exclude<DayTimelineCellState, "empty">,
   timeZone = normalizeTimeZone(),
-  options: { isLive?: boolean; maxCells?: number } = {},
+  options: { isLive?: boolean } = {},
 ) {
   const zone = normalizeTimeZone(timeZone);
   const start = new Date(startIso);
@@ -469,20 +481,7 @@ function markTimelineSegment(
     return;
   }
 
-  const overlaps = getTimelineCellOverlaps(startOffsetMs, endOffsetMs);
-  const selectedOverlaps =
-    typeof options.maxCells === "number" && options.maxCells >= 0
-      ? overlaps
-          .slice()
-          .sort((a, b) => {
-            const durationDiff = b.durationMs - a.durationMs;
-            return durationDiff !== 0 ? durationDiff : a.cellIndex - b.cellIndex;
-          })
-          .slice(0, options.maxCells)
-          .sort((a, b) => a.cellIndex - b.cellIndex)
-      : overlaps;
-
-  selectedOverlaps.forEach((overlap) => {
+  getTimelineCellOverlaps(startOffsetMs, endOffsetMs).forEach((overlap) => {
     overlayTimelineCellRange(
       cellStateRanges,
       overlap.cellIndex,
@@ -504,7 +503,7 @@ function getTimelineBreakDisplay(
   session: AppSnapshot["breakSessions"][number],
   start: Date,
   now: Date,
-): { end: string; isLive: boolean; maxCells?: number } {
+): { end: string; isLive: boolean } {
   const plannedEnd = new Date(
     start.getTime() +
       Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000,
@@ -524,14 +523,9 @@ function getTimelineBreakDisplay(
         ? session.actual_duration_minutes
         : session.planned_duration_minutes;
     const displayDurationMinutes = Math.max(0, Math.round(durationMinutes));
-    const maxCells =
-      displayDurationMinutes > 0
-        ? Math.max(1, Math.round(displayDurationMinutes / dayTimelineSlotMinutes))
-        : 0;
     return {
       end: new Date(start.getTime() + displayDurationMinutes * 60_000).toISOString(),
       isLive: false,
-      maxCells,
     };
   }
 
@@ -590,12 +584,14 @@ function applyCellRangesToTimelineCells(
   liveCellEndMs: Array<number | undefined>,
 ) {
   cells.forEach((cell, index) => {
-    const state = selectTimelineCellState(
+    const summary = summarizeTimelineCell(
       cellStateRanges[index],
       liveCellEndMs[index] ?? dayTimelineSlotMs,
     );
-    cell.state = state;
-    cell.title = `${cell.timeLabel} ${timelineStateLabel(state)}`;
+    cell.state = summary.state;
+    cell.durationMsByState = summary.durationMsByState;
+    cell.parts = summary.parts;
+    cell.title = formatTimelineCellTitle(cell.timeLabel, summary.durationMsByState);
   });
 }
 
@@ -607,47 +603,134 @@ function getLocalMillisecondOfDay(date: Date, timeZone: string): number {
   );
 }
 
-function selectTimelineCellState(
+function summarizeTimelineCell(
   ranges: TimelineStateRange[] | undefined,
   observedEndMs: number,
-) {
-  const counts: Record<DayTimelineCellState, number> = {
-    empty: 0,
-    startup_delay: 0,
-    break: 0,
-    focus: 0,
-    blocked: 0,
-  };
+): {
+  state: DayTimelineCellState;
+  durationMsByState: TimelineDurationMap;
+  parts: DayTimelineCell["parts"];
+} {
+  const safeObservedEndMs = Math.max(0, Math.min(dayTimelineSlotMs, observedEndMs));
+  const durationMsByState = createTimelineDurationMap();
 
   if (!ranges) {
-    return "empty";
+    durationMsByState.empty = safeObservedEndMs;
+    return {
+      state: "empty",
+      durationMsByState,
+      parts: [{ state: "empty", startRatio: 0, endRatio: 1 }],
+    };
   }
+
+  const parts: DayTimelineCell["parts"] = [];
 
   ranges.forEach((range) => {
     const overlapStartMs = Math.max(0, range.startMs);
-    const overlapEndMs = Math.min(observedEndMs, range.endMs);
+    const overlapEndMs = Math.min(safeObservedEndMs, range.endMs);
     const durationMs = Math.max(0, overlapEndMs - overlapStartMs);
     if (durationMs <= 0) {
       return;
     }
 
-    counts[range.state] += durationMs;
+    durationMsByState[range.state] += durationMs;
+    parts.push({
+      state: range.state,
+      startRatio: overlapStartMs / dayTimelineSlotMs,
+      endRatio: overlapEndMs / dayTimelineSlotMs,
+    });
   });
 
-  return timelineStates.reduce<DayTimelineCellState>((winner, state) => {
-    if (counts[state] > counts[winner]) {
+  if (safeObservedEndMs < dayTimelineSlotMs) {
+    parts.push({
+      state: "empty",
+      startRatio: safeObservedEndMs / dayTimelineSlotMs,
+      endRatio: 1,
+    });
+  }
+
+  const state = timelineStates.reduce<DayTimelineCellState>((winner, state) => {
+    if (durationMsByState[state] > durationMsByState[winner]) {
       return state;
     }
 
     if (
-      counts[state] === counts[winner] &&
+      durationMsByState[state] === durationMsByState[winner] &&
       timelineTiePriority[state] > timelineTiePriority[winner]
     ) {
       return state;
     }
 
-  return winner;
+    return winner;
   }, "empty");
+
+  return {
+    state,
+    durationMsByState,
+    parts: parts.length > 0 ? mergeTimelineParts(parts) : [
+      { state: "empty", startRatio: 0, endRatio: 1 },
+    ],
+  };
+}
+
+function mergeTimelineParts(parts: DayTimelineCell["parts"]): DayTimelineCell["parts"] {
+  return parts.reduce<DayTimelineCell["parts"]>((merged, part) => {
+    const previous = merged.at(-1);
+    if (
+      previous &&
+      previous.state === part.state &&
+      Math.abs(previous.endRatio - part.startRatio) < 0.0001
+    ) {
+      previous.endRatio = part.endRatio;
+      return merged;
+    }
+
+    merged.push(part);
+    return merged;
+  }, []);
+}
+
+export function sumTimelineCellDurations(
+  cells: DayTimelineCell[],
+): TimelineDurationMap {
+  return cells.reduce<TimelineDurationMap>((result, cell) => {
+    timelineStates.forEach((state) => {
+      result[state] += cell.durationMsByState[state] ?? 0;
+    });
+
+    return result;
+  }, createTimelineDurationMap());
+}
+
+function minutesFromTimelineDuration(durationMs: number): number {
+  return Math.round(durationMs / 60_000);
+}
+
+function formatTimelineCellTitle(
+  timeLabel: string,
+  durationMsByState: TimelineDurationMap,
+): string {
+  const parts = timelineStates
+    .filter((state) => state !== "empty" && durationMsByState[state] > 0)
+    .map((state) => `${timelineStateLabel(state)} ${formatTimelineDuration(durationMsByState[state])}`);
+
+  if (parts.length === 0) {
+    return `${timeLabel} 空白`;
+  }
+
+  return `${timeLabel} ${parts.join("，")}`;
+}
+
+function formatTimelineDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (seconds === 0) {
+    return `${minutes} 分钟`;
+  }
+
+  return `${minutes} 分 ${seconds} 秒`;
 }
 
 function getTimelineCellOverlaps(startOffsetMs: number, endOffsetMs: number) {
