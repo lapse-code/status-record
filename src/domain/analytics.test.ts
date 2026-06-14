@@ -204,7 +204,24 @@ describe("analytics summary", () => {
   it("caps naturally completed break display to the used break minutes", () => {
     const snapshot: AppSnapshot = {
       ...baseSnapshot,
-      arrivalSessions: [],
+      arrivalSessions: [
+        {
+          id: "arrival-before-break",
+          local_date: "2026-06-11",
+          arrived_at: localIsoWithSecond(0, 35, 0),
+          left_at: localIsoWithSecond(0, 37, 21),
+          created_at: localIsoWithSecond(0, 35, 0),
+          updated_at: localIsoWithSecond(0, 37, 21),
+        },
+        {
+          id: "arrival-after-break",
+          local_date: "2026-06-11",
+          arrived_at: localIsoWithSecond(0, 42, 59),
+          left_at: localIsoWithSecond(0, 45, 0),
+          created_at: localIsoWithSecond(0, 42, 59),
+          updated_at: localIsoWithSecond(0, 45, 0),
+        },
+      ],
       focusSessions: [],
       sessionReviews: [],
       sessionReviewLabels: [],

@@ -26,14 +26,15 @@ import {
   getLocalDateStartUtcMs,
   getZonedDateTimeParts,
   normalizeTimeZone,
-  toLocalDate,
 } from "./time";
 
 const dayTimelineSlotMinutes = 5;
 const dayTimelineSlotSeconds = dayTimelineSlotMinutes * 60;
+const dayTimelineSlotMs = dayTimelineSlotSeconds * 1_000;
 const dayTimelineHours = 24;
 const dayTimelineSlotsPerHour = 60 / dayTimelineSlotMinutes;
-const dayTimelineSeconds = dayTimelineHours * 60 * 60;
+const dayTimelineCellCount = dayTimelineHours * dayTimelineSlotsPerHour;
+const dayTimelineMs = dayTimelineHours * 60 * 60 * 1_000;
 const timelineStates = ["empty", "startup_delay", "break", "focus", "blocked"] as const;
 const timelineLayerPriority: Record<DayTimelineCellState, number> = {
   empty: 0,
@@ -48,6 +49,11 @@ const timelineTiePriority: Record<DayTimelineCellState, number> = {
   startup_delay: 2,
   focus: 3,
   blocked: 4,
+};
+type TimelineStateRange = {
+  startMs: number;
+  endMs: number;
+  state: DayTimelineCellState;
 };
 
 export function getAnalyticsRange(
@@ -172,9 +178,13 @@ export function buildDayTimeline(
   localDate: LocalDate,
   now: Date = new Date(),
 ): DayTimelineCell[] {
-  const secondStates: DayTimelineCellState[] =
-    Array<DayTimelineCellState>(dayTimelineSeconds).fill("empty");
-  const cells: DayTimelineCell[] = Array.from({ length: dayTimelineHours * dayTimelineSlotsPerHour }, (_, index) => {
+  const cellStateRanges: Array<TimelineStateRange[] | undefined> = Array.from({
+    length: dayTimelineCellCount,
+  });
+  const liveCellEndMs: Array<number | undefined> = Array.from({
+    length: dayTimelineCellCount,
+  });
+  const cells: DayTimelineCell[] = Array.from({ length: dayTimelineCellCount }, (_, index) => {
     const hour = Math.floor(index / dayTimelineSlotsPerHour);
     const slot = index % dayTimelineSlotsPerHour;
     const minuteOfDay = hour * 60 + slot * dayTimelineSlotMinutes;
@@ -213,12 +223,14 @@ export function buildDayTimeline(
     .filter((arrival) => !arrival.deleted_at)
     .forEach((arrival) => {
       markTimelineSegment(
-        secondStates,
+        cellStateRanges,
+        liveCellEndMs,
         localDate,
         arrival.arrived_at,
         arrival.left_at ?? now.toISOString(),
         "startup_delay",
         arrival.time_zone,
+        { isLive: !arrival.left_at },
       );
     });
 
@@ -229,15 +241,17 @@ export function buildDayTimeline(
     )
     .forEach((session) => {
       const start = new Date(session.started_at);
-      const end = getTimelineBreakEnd(session, start, now);
+      const { end, isLive, maxCells } = getTimelineBreakDisplay(session, start, now);
 
       markTimelineSegment(
-        secondStates,
+        cellStateRanges,
+        liveCellEndMs,
         localDate,
         session.started_at,
         end,
         "break",
         session.time_zone,
+        { isLive, maxCells },
       );
     });
 
@@ -278,13 +292,18 @@ export function buildDayTimeline(
 
         remainingFocusBudgetMs -= cappedEndMs - startMs;
 
+        const isLiveSegment =
+          segment.state === "running" && cappedEndMs === now.getTime();
+
         markTimelineSegment(
-          secondStates,
+          cellStateRanges,
+          liveCellEndMs,
           localDate,
           segment.started_at,
           new Date(cappedEndMs).toISOString(),
           state,
           segment.time_zone ?? session.time_zone,
+          { isLive: isLiveSegment },
         );
       });
       return;
@@ -297,16 +316,18 @@ export function buildDayTimeline(
     }
 
     markTimelineSegment(
-      secondStates,
+      cellStateRanges,
+      liveCellEndMs,
       localDate,
       session.started_at,
       end,
       state,
       session.time_zone,
+      { isLive: session.state === "running" && end === now.toISOString() },
     );
   });
 
-  applySecondStatesToTimelineCells(cells, secondStates);
+  applyCellRangesToTimelineCells(cells, cellStateRanges, liveCellEndMs);
 
   return cells;
 }
@@ -419,12 +440,14 @@ function isDateInRange(date: LocalDate, range: AnalyticsRange): boolean {
 }
 
 function markTimelineSegment(
-  secondStates: DayTimelineCellState[],
+  cellStateRanges: Array<TimelineStateRange[] | undefined>,
+  liveCellEndMs: Array<number | undefined>,
   localDate: LocalDate,
   startIso: string,
   endIso: string,
   state: Exclude<DayTimelineCellState, "empty">,
   timeZone = normalizeTimeZone(),
+  options: { isLive?: boolean; maxCells?: number } = {},
 ) {
   const zone = normalizeTimeZone(timeZone);
   const start = new Date(startIso);
@@ -438,39 +461,61 @@ function markTimelineSegment(
     return;
   }
 
-  const firstSecondMs = Math.ceil(startMs / 1_000) * 1_000;
-  for (let ms = firstSecondMs; ms < endMs; ms += 1_000) {
-    const secondDate = new Date(ms);
-    if (toLocalDate(secondDate, zone) !== localDate) {
-      continue;
-    }
-
-    const index = getLocalSecondOfDay(secondDate, zone);
-    if (index < 0 || index >= secondStates.length) {
-      continue;
-    }
-
-    const currentState = secondStates[index];
-    if (!currentState || shouldKeepTimelineState(currentState, state)) {
-      continue;
-    }
-
-    secondStates[index] = state;
+  const startOffsetMs =
+    startMs <= dayStartMs ? 0 : getLocalMillisecondOfDay(new Date(startMs), zone);
+  const endOffsetMs =
+    endMs >= dayEndMs ? dayTimelineMs : getLocalMillisecondOfDay(new Date(endMs), zone);
+  if (endOffsetMs <= startOffsetMs) {
+    return;
   }
+
+  const overlaps = getTimelineCellOverlaps(startOffsetMs, endOffsetMs);
+  const selectedOverlaps =
+    typeof options.maxCells === "number" && options.maxCells >= 0
+      ? overlaps
+          .slice()
+          .sort((a, b) => {
+            const durationDiff = b.durationMs - a.durationMs;
+            return durationDiff !== 0 ? durationDiff : a.cellIndex - b.cellIndex;
+          })
+          .slice(0, options.maxCells)
+          .sort((a, b) => a.cellIndex - b.cellIndex)
+      : overlaps;
+
+  selectedOverlaps.forEach((overlap) => {
+    overlayTimelineCellRange(
+      cellStateRanges,
+      overlap.cellIndex,
+      overlap.startMs,
+      overlap.endMs,
+      state,
+    );
+
+    if (options.isLive) {
+      liveCellEndMs[overlap.cellIndex] = Math.max(
+        liveCellEndMs[overlap.cellIndex] ?? 0,
+        overlap.endMs,
+      );
+    }
+  });
 }
 
-function getTimelineBreakEnd(
+function getTimelineBreakDisplay(
   session: AppSnapshot["breakSessions"][number],
   start: Date,
   now: Date,
-): string {
+): { end: string; isLive: boolean; maxCells?: number } {
   const plannedEnd = new Date(
     start.getTime() +
       Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000,
   );
 
   if (session.state === "running") {
-    return new Date(Math.min(now.getTime(), plannedEnd.getTime())).toISOString();
+    const cappedEndMs = Math.min(now.getTime(), plannedEnd.getTime());
+    return {
+      end: new Date(cappedEndMs).toISOString(),
+      isLive: cappedEndMs === now.getTime(),
+    };
   }
 
   if (session.state === "completed" && !session.ended_early) {
@@ -478,12 +523,19 @@ function getTimelineBreakEnd(
       typeof session.actual_duration_minutes === "number"
         ? session.actual_duration_minutes
         : session.planned_duration_minutes;
-    return new Date(
-      start.getTime() + Math.max(0, Math.round(durationMinutes)) * 60_000,
-    ).toISOString();
+    const displayDurationMinutes = Math.max(0, Math.round(durationMinutes));
+    const maxCells =
+      displayDurationMinutes > 0
+        ? Math.max(1, Math.round(displayDurationMinutes / dayTimelineSlotMinutes))
+        : 0;
+    return {
+      end: new Date(start.getTime() + displayDurationMinutes * 60_000).toISOString(),
+      isLive: false,
+      maxCells,
+    };
   }
 
-  return session.completed_at ?? plannedEnd.toISOString();
+  return { end: session.completed_at ?? plannedEnd.toISOString(), isLive: false };
 }
 
 function getTimelineFocusSegmentEnd(
@@ -532,28 +584,33 @@ function getPlannedFocusBudgetMs(session: FocusSessionRecord): number {
   return Math.max(0, Math.round(session.planned_duration_minutes)) * 60_000;
 }
 
-function applySecondStatesToTimelineCells(
+function applyCellRangesToTimelineCells(
   cells: DayTimelineCell[],
-  secondStates: DayTimelineCellState[],
+  cellStateRanges: Array<TimelineStateRange[] | undefined>,
+  liveCellEndMs: Array<number | undefined>,
 ) {
-  cells.forEach((cell) => {
-    const cellStartSecond = cell.minuteOfDay * 60;
-    const statesInCell = secondStates.slice(
-      cellStartSecond,
-      cellStartSecond + dayTimelineSlotSeconds,
+  cells.forEach((cell, index) => {
+    const state = selectTimelineCellState(
+      cellStateRanges[index],
+      liveCellEndMs[index] ?? dayTimelineSlotMs,
     );
-    const state = selectTimelineCellState(statesInCell);
     cell.state = state;
     cell.title = `${cell.timeLabel} ${timelineStateLabel(state)}`;
   });
 }
 
-function getLocalSecondOfDay(date: Date, timeZone: string): number {
+function getLocalMillisecondOfDay(date: Date, timeZone: string): number {
   const parts = getZonedDateTimeParts(date, timeZone);
-  return parts.hour * 60 * 60 + parts.minute * 60 + parts.second;
+  return (
+    ((parts.hour * 60 + parts.minute) * 60 + parts.second) * 1_000 +
+    date.getMilliseconds()
+  );
 }
 
-function selectTimelineCellState(states: DayTimelineCellState[]) {
+function selectTimelineCellState(
+  ranges: TimelineStateRange[] | undefined,
+  observedEndMs: number,
+) {
   const counts: Record<DayTimelineCellState, number> = {
     empty: 0,
     startup_delay: 0,
@@ -562,8 +619,19 @@ function selectTimelineCellState(states: DayTimelineCellState[]) {
     blocked: 0,
   };
 
-  states.forEach((state) => {
-    counts[state] += 1;
+  if (!ranges) {
+    return "empty";
+  }
+
+  ranges.forEach((range) => {
+    const overlapStartMs = Math.max(0, range.startMs);
+    const overlapEndMs = Math.min(observedEndMs, range.endMs);
+    const durationMs = Math.max(0, overlapEndMs - overlapStartMs);
+    if (durationMs <= 0) {
+      return;
+    }
+
+    counts[range.state] += durationMs;
   });
 
   return timelineStates.reduce<DayTimelineCellState>((winner, state) => {
@@ -578,8 +646,93 @@ function selectTimelineCellState(states: DayTimelineCellState[]) {
       return state;
     }
 
-    return winner;
+  return winner;
   }, "empty");
+}
+
+function getTimelineCellOverlaps(startOffsetMs: number, endOffsetMs: number) {
+  const startCell = Math.max(0, Math.floor(startOffsetMs / dayTimelineSlotMs));
+  const endCell = Math.min(
+    dayTimelineCellCount - 1,
+    Math.floor((endOffsetMs - 1) / dayTimelineSlotMs),
+  );
+  const overlaps: Array<{
+    cellIndex: number;
+    startMs: number;
+    endMs: number;
+    durationMs: number;
+  }> = [];
+
+  for (let cellIndex = startCell; cellIndex <= endCell; cellIndex += 1) {
+    const cellStartMs = cellIndex * dayTimelineSlotMs;
+    const cellEndMs = cellStartMs + dayTimelineSlotMs;
+    const startMs = Math.max(startOffsetMs, cellStartMs) - cellStartMs;
+    const endMs = Math.min(endOffsetMs, cellEndMs) - cellStartMs;
+    if (endMs > startMs) {
+      overlaps.push({
+        cellIndex,
+        startMs,
+        endMs,
+        durationMs: endMs - startMs,
+      });
+    }
+  }
+
+  return overlaps;
+}
+
+function overlayTimelineCellRange(
+  cellStateRanges: Array<TimelineStateRange[] | undefined>,
+  cellIndex: number,
+  startMs: number,
+  endMs: number,
+  state: Exclude<DayTimelineCellState, "empty">,
+) {
+  const existingRanges = cellStateRanges[cellIndex] ?? [
+    { startMs: 0, endMs: dayTimelineSlotMs, state: "empty" as const },
+  ];
+  const nextRanges: TimelineStateRange[] = [];
+
+  existingRanges.forEach((range) => {
+    if (range.endMs <= startMs || range.startMs >= endMs) {
+      nextRanges.push(range);
+      return;
+    }
+
+    if (shouldKeepTimelineState(range.state, state)) {
+      nextRanges.push(range);
+      return;
+    }
+
+    if (range.startMs < startMs) {
+      nextRanges.push({ ...range, endMs: startMs });
+    }
+
+    nextRanges.push({
+      startMs: Math.max(range.startMs, startMs),
+      endMs: Math.min(range.endMs, endMs),
+      state,
+    });
+
+    if (range.endMs > endMs) {
+      nextRanges.push({ ...range, startMs: endMs });
+    }
+  });
+
+  cellStateRanges[cellIndex] = mergeAdjacentTimelineRanges(nextRanges);
+}
+
+function mergeAdjacentTimelineRanges(ranges: TimelineStateRange[]) {
+  return ranges.reduce<TimelineStateRange[]>((merged, range) => {
+    const previous = merged.at(-1);
+    if (previous && previous.state === range.state && previous.endMs === range.startMs) {
+      previous.endMs = range.endMs;
+      return merged;
+    }
+
+    merged.push(range);
+    return merged;
+  }, []);
 }
 
 function shouldKeepTimelineState(
