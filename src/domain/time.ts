@@ -57,6 +57,31 @@ export function getLocalDateStartUtcMs(
   );
 }
 
+export function localDateTimeToIso(
+  localDate: string,
+  time: string,
+  timeZone = getCurrentTimeZone(),
+): string {
+  const [year, month, day] = parseLocalDateParts(localDate);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!match) {
+    throw new Error("时间格式必须是 HH:mm。");
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error("时间必须在 00:00 到 23:59 之间。");
+  }
+
+  return new Date(
+    zonedDateTimeToUtcMs(
+      { year, month, day, hour, minute, second: 0 },
+      normalizeTimeZone(timeZone),
+    ),
+  ).toISOString();
+}
+
 export function getNextLocalDate(localDate: string): string {
   const [year, month, day] = parseLocalDateParts(localDate);
   const value = new Date(Date.UTC(year, month - 1, day + 1));

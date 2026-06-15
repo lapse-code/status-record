@@ -65,6 +65,7 @@ import {
   checkOutArrival,
   completeBreakTimer,
   completeFocusTimer,
+  createManualFocusRecord,
   createLabel,
   deleteLabel,
   exportAllData,
@@ -88,6 +89,7 @@ import type {
   AppSettingRecord,
   AppSnapshot,
   BreakSessionRecord,
+  CreateManualFocusRecordInput,
   DayTimelineCell,
   FocusSessionRecord,
   Id,
@@ -145,6 +147,8 @@ const emptySnapshot: AppSnapshot = {
 };
 
 const presetMinutes = [25, 45, 50, 90];
+const defaultManualRecordDurationMinutes = 25;
+const maxManualRecordDurationMinutes = 24 * 60;
 const defaultSleepDurationMinutes = 7 * 60;
 const maxSleepDurationMinutes = 14 * 60;
 const sleepStepMinutes = 15;
@@ -208,6 +212,7 @@ export default function App() {
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [showBreakCompletionPrompt, setShowBreakCompletionPrompt] = useState(false);
+  const [showManualRecordModal, setShowManualRecordModal] = useState(false);
   const completingRef = useRef<string | null>(null);
   const completingBreakRef = useRef<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -752,6 +757,18 @@ export default function App() {
                       开始
                     </button>
                   </form>
+
+                  <button
+                    className="secondary-button manual-record-button"
+                    type="button"
+                    disabled={Boolean(
+                      activeFocusSession || pendingReviewSession || activeBreakSession,
+                    )}
+                    onClick={() => setShowManualRecordModal(true)}
+                  >
+                    <Plus size={18} />
+                    手动记录
+                  </button>
                 </div>
               )}
 
@@ -858,6 +875,24 @@ export default function App() {
                 ? "复盘已保存，休息倒计时已开始。"
                 : "复盘已保存，请选择下一轮番茄钟继续。",
             );
+          }}
+        />
+      ) : null}
+
+      {showManualRecordModal &&
+      !activeFocusSession &&
+      !pendingReviewSession &&
+      !activeBreakSession ? (
+        <ManualRecordModal
+          labels={snapshot.labels}
+          localDate={currentLocalDate}
+          now={now}
+          onCancel={() => setShowManualRecordModal(false)}
+          onSubmit={async (input) => {
+            await createManualFocusRecord(input);
+            await refresh();
+            setShowManualRecordModal(false);
+            setMessage("手动记录已保存。");
           }}
         />
       ) : null}
@@ -1146,6 +1181,46 @@ function parseEnergyInput(value: string, fallbackScore: 1 | 2 | 3 | 4 | 5) {
     : fallbackScore;
 }
 
+function normalizeManualRecordDuration(minutes: number): number {
+  if (!Number.isFinite(minutes)) {
+    return defaultManualRecordDurationMinutes;
+  }
+
+  return Math.min(
+    maxManualRecordDurationMinutes,
+    Math.max(1, Math.round(minutes)),
+  );
+}
+
+function parseManualRecordDurationInput(
+  value: string,
+  fallbackMinutes: number,
+): number {
+  const parsedMinutes = Number(value.trim());
+  return Number.isFinite(parsedMinutes)
+    ? normalizeManualRecordDuration(parsedMinutes)
+    : fallbackMinutes;
+}
+
+function getDefaultManualRecordStartTime(
+  now: Date,
+  durationMinutes: number,
+  localDate: string,
+): string {
+  const candidate = new Date(now.getTime() - durationMinutes * 60_000);
+  if (toLocalDate(candidate) !== localDate) {
+    return "00:00";
+  }
+
+  return formatTimeInput(candidate);
+}
+
+function formatTimeInput(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
 type ReviewFormValues = {
   statusLabelId: Id;
   attentionSwitchCount: number;
@@ -1312,6 +1387,207 @@ function ReviewFormFields({
         />
       </fieldset>
     </>
+  );
+}
+
+function ManualRecordModal({
+  labels,
+  localDate,
+  now,
+  onSubmit,
+  onCancel,
+}: {
+  labels: LabelRecord[];
+  localDate: string;
+  now: Date;
+  onSubmit: (input: CreateManualFocusRecordInput) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const statusLabels = activeLabelsByType(labels, "session_status");
+  const noneBlocker = getNoneBlockerLabel(labels);
+  const [startTime, setStartTime] = useState(() =>
+    getDefaultManualRecordStartTime(
+      now,
+      defaultManualRecordDurationMinutes,
+      localDate,
+    ),
+  );
+  const [durationMinutes, setDurationMinutes] = useState(
+    defaultManualRecordDurationMinutes,
+  );
+  const [durationInput, setDurationInput] = useState(
+    String(defaultManualRecordDurationMinutes),
+  );
+  const [values, setValues] = useState<ReviewFormValues>({
+    statusLabelId:
+      statusLabels.find((label) => label.id === focusStatusLabelId)?.id ??
+      statusLabels[0]?.id ??
+      "",
+    attentionSwitchCount: 0,
+    productLabelIds: [],
+    productNote: "",
+    blockerLabelIds: noneBlocker ? [noneBlocker.id] : [],
+    blockerNote: "",
+  });
+  const [error, setError] = useState("");
+
+  function patchValues(patch: Partial<ReviewFormValues>) {
+    setValues((current) => ({ ...current, ...patch }));
+  }
+
+  function applyDuration(nextMinutes: number) {
+    const normalizedMinutes = normalizeManualRecordDuration(nextMinutes);
+    setDurationMinutes(normalizedMinutes);
+    setDurationInput(String(normalizedMinutes));
+  }
+
+  function commitDurationInput() {
+    const normalizedMinutes = parseManualRecordDurationInput(
+      durationInput,
+      durationMinutes,
+    );
+    applyDuration(normalizedMinutes);
+    return normalizedMinutes;
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form
+        className="review-modal manual-record-modal"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!values.statusLabelId) {
+            setError("请选择本轮状态。");
+            return;
+          }
+
+          const finalDurationMinutes = commitDurationInput();
+          const finalBlockerIds =
+            values.blockerLabelIds.length > 0
+              ? values.blockerLabelIds
+              : noneBlocker
+                ? [noneBlocker.id]
+                : [];
+
+          try {
+            await onSubmit({
+              localDate,
+              startTime,
+              durationMinutes: finalDurationMinutes,
+              statusLabelId: values.statusLabelId,
+              attentionSwitchCount: values.attentionSwitchCount,
+              productLabelIds: values.productLabelIds,
+              productNote: values.productNote,
+              blockerLabelIds: finalBlockerIds,
+              blockerNote: values.blockerNote,
+            });
+          } catch (submitError) {
+            setError(
+              submitError instanceof Error ? submitError.message : "手动记录保存失败。",
+            );
+          }
+        }}
+      >
+        <div className="panel-heading">
+          <div>
+            <h2>手动记录</h2>
+            <p>补录今天已经完成的学习时间，并直接进入统计。</p>
+          </div>
+          <button
+            aria-label="关闭手动记录"
+            className="icon-button"
+            type="button"
+            onClick={onCancel}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {error ? <div className="form-error">{error}</div> : null}
+
+        <div className="manual-record-time-grid">
+          <label>
+            开始时间
+            <input
+              aria-label="手动记录开始时间"
+              required
+              type="time"
+              value={startTime}
+              onChange={(event) => setStartTime(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            持续时间（分钟）
+            <div className="stepper-control compact">
+              <input
+                aria-label="手动记录持续时间"
+                inputMode="numeric"
+                value={durationInput}
+                onBlur={commitDurationInput}
+                onChange={(event) => setDurationInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    applyDuration(durationMinutes + 1);
+                  }
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    applyDuration(durationMinutes - 1);
+                  }
+                  if (event.key === "Enter") {
+                    commitDurationInput();
+                  }
+                }}
+              />
+              <span className="stepper-suffix">分钟</span>
+              <div className="stepper-buttons">
+                <button
+                  aria-label="增加手动记录持续时间 1 分钟"
+                  type="button"
+                  onClick={() => applyDuration(durationMinutes + 1)}
+                >
+                  <ChevronUp size={16} />
+                </button>
+                <button
+                  aria-label="减少手动记录持续时间 1 分钟"
+                  type="button"
+                  onClick={() => applyDuration(durationMinutes - 1)}
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <ReviewFormFields
+          labels={labels}
+          values={values}
+          onStatusLabelChange={(statusLabelId) => patchValues({ statusLabelId })}
+          onAttentionSwitchCountChange={(attentionSwitchCount) =>
+            patchValues({ attentionSwitchCount })
+          }
+          onProductLabelIdsChange={(productLabelIds) =>
+            patchValues({ productLabelIds })
+          }
+          onProductNoteChange={(productNote) => patchValues({ productNote })}
+          onBlockerLabelIdsChange={(blockerLabelIds) =>
+            patchValues({ blockerLabelIds })
+          }
+          onBlockerNoteChange={(blockerNote) => patchValues({ blockerNote })}
+        />
+
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onCancel}>
+            取消
+          </button>
+          <button className="primary-button" type="submit">
+            <Save size={18} />
+            保存手动记录
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

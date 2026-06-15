@@ -194,6 +194,18 @@ export interface SubmitSessionReviewInput {
   breakMinutesUsed?: number;
 }
 
+export interface CreateManualFocusRecordInput {
+  localDate: LocalDate;
+  startTime: string;
+  durationMinutes: number;
+  statusLabelId: Id;
+  attentionSwitchCount: number;
+  productLabelIds: Id[];
+  productNote?: string;
+  blockerLabelIds: Id[];
+  blockerNote?: string;
+}
+
 export interface UpdateSessionReviewInput {
   reviewId: Id;
   statusLabelId: Id;

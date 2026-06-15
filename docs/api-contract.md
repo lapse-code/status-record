@@ -135,6 +135,33 @@ interface UpdateSessionReviewInput {
 - `attentionSwitchCount` 必须是 0 或正整数。
 - 保存成功后调用方应重新读取 snapshot，刷新统计、点阵和记录明细。
 
+### createManualFocusRecord
+
+```ts
+interface CreateManualFocusRecordInput {
+  localDate: LocalDate;
+  startTime: string; // HH:mm
+  durationMinutes: number;
+  statusLabelId: Id;
+  attentionSwitchCount: number;
+  productLabelIds: Id[];
+  productNote?: string;
+  blockerLabelIds: Id[];
+  blockerNote?: string;
+}
+```
+
+规则：
+
+- 用于 Today 页面“手动记录”，补录忘记开启番茄钟但已经完成的学习时间。
+- `startTime` 是 `localDate` 当天、当前设备时区下的本地时间。
+- `durationMinutes` 必须大于 0，当前上限为 24 小时。
+- 保存后创建一条 `reviewed` focus session、一条 completed focus segment、一条 session review，以及对应的产物/不专注原因标签关系。
+- 不创建、关闭、重开或修改 arrival session；如果时间段落在打开的到岗区间内，点阵和统计会用专注/不专注覆盖原本的拖延时间。
+- 不显示或创建休息倒计时，也不写入 `break_bank_transactions`；但 `actual_duration_minutes` 会进入当天学习累计账本，动态增加今日休息余额。
+- 手动记录时间段不能和已有非取消专注记录重叠，避免点阵时长和休息余额重复计算。
+- 保存成功后调用方应重新读取 snapshot，刷新 Today 摘要、日点阵、统计和休息余额。
+
 ## Break Timer Service
 
 ### completeBreakTimer

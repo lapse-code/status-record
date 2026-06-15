@@ -307,6 +307,10 @@ type ArrivalSessionRow = {
 type FocusSessionRow = {
   id: string;
   arrival_session_id?: string;
+  actual_duration_minutes?: number;
+  earned_break_minutes?: number;
+  planned_duration_minutes?: number;
+  state?: string;
 };
 
 async function readStoreRows<T>(page: Page, storeName: string): Promise<T[]> {
@@ -493,6 +497,57 @@ test("earns break balance from cumulative daily focus minutes", async ({ page })
 
   await expect(page.getByText("复盘已保存，休息倒计时已开始。")).toBeVisible();
   await expect(page.locator(".timer-caption")).toHaveText("休息中");
+});
+
+test("creates a manual focus record with review data and break credit", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "手动记录", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "手动记录" })).toBeVisible();
+  await page.getByLabel("手动记录开始时间").fill("11:00");
+  const durationInput = page.getByRole("textbox", { name: "手动记录持续时间" });
+  await expect(durationInput).toHaveValue("25");
+  await page
+    .getByRole("button", { name: "增加手动记录持续时间 1 分钟" })
+    .click();
+  await expect(durationInput).toHaveValue("26");
+  await page
+    .getByRole("button", { name: "减少手动记录持续时间 1 分钟" })
+    .click();
+  await expect(durationInput).toHaveValue("25");
+  await page.getByRole("button", { name: "笔记" }).click();
+  await page.getByPlaceholder("这轮实际产出了什么？").fill("补录学习记录");
+  await page.getByRole("button", { name: "保存手动记录", exact: true }).click();
+
+  await expect(page.getByText("手动记录已保存。")).toBeVisible();
+  await expect(
+    page.locator(".stat-card").filter({ hasText: "今日专注" }).getByText("25 分钟"),
+  ).toBeVisible();
+  await expect(
+    page.locator(".stat-card").filter({ hasText: "休息余额" }).getByText("5 分钟"),
+  ).toBeVisible();
+
+  const focusSessions = await readStoreRows<FocusSessionRow>(
+    page,
+    "focus_sessions",
+  );
+  expect(focusSessions).toHaveLength(1);
+  expect(focusSessions[0]).toMatchObject({
+    actual_duration_minutes: 25,
+    earned_break_minutes: 5,
+    planned_duration_minutes: 25,
+    state: "reviewed",
+  });
+  expect(focusSessions[0]?.arrival_session_id).toBeUndefined();
+
+  await page.getByRole("button", { name: "手动记录", exact: true }).click();
+  await page.getByLabel("手动记录开始时间").fill("11:00");
+  await page.getByRole("button", { name: "保存手动记录", exact: true }).click();
+  await expect(
+    page.getByText("手动记录时间段不能和已有专注记录重叠。"),
+  ).toBeVisible();
 });
 
 test("starts and ends a break timer after review", async ({ page }) => {

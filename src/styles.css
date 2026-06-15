@@ -1522,6 +1522,17 @@ body {
   padding-top: 14px;
 }
 
+.manual-record-button {
+  min-height: 46px;
+}
+
+.manual-record-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .break-bank-row {
   display: flex;
   align-items: center;
@@ -1791,6 +1802,7 @@ textarea:focus {
   .summary-strip,
   .preset-grid,
   .custom-time-form,
+  .manual-record-time-grid,
   .sleep-form,
   .layout-grid .day-dot-panel .timeline-controls {
     grid-template-columns: 1fr;

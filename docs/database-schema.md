@@ -90,6 +90,8 @@
 - 只有 `completed` 或 `reviewed` 的记录进入专注时长统计；当前统计主要使用已复盘的 `reviewed` 记录。
 - `reviewed` 表示已完成结束复盘。
 - 真实专注发生在哪些时间段不只靠 `started_at + actual_duration_minutes` 推断，优先读取 `focus_segments`。
+- Today 页面“手动记录”也写入本表：它直接创建 `reviewed` 记录，`planned_duration_minutes` 和 `actual_duration_minutes` 等于用户输入的持续分钟，`arrival_session_id` 可以为空，且不会修改到岗记录。
+- 手动记录的 `actual_duration_minutes` 和普通番茄钟一样参与当天休息余额动态累计。
 
 ## focus_segments
 
@@ -116,6 +118,7 @@
 - 点击完成时关闭当前 segment，并按有效专注分钟结束 focus session。
 - 点击取消时将本轮 segments 标记为 `canceled`，不进入专注统计。
 - 旧数据或旧导入文件可能没有 segments；统计点阵可回退到 `focus_sessions.started_at + actual_duration_minutes` 的连续区间。
+- 手动记录保存时会创建一条 completed segment，覆盖用户输入的开始时间到结束时间。
 
 ## session_reviews
 
@@ -137,6 +140,7 @@
 
 - 每个 focus session 最多一条有效 review。
 - `attention_switch_count >= 0`。
+- 手动记录保存时会同步创建 review，因此不会进入“待复盘”状态，也不会显示休息使用选择。
 
 ## session_review_labels
 

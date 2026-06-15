@@ -17,6 +17,7 @@ import { createId } from "../domain/id";
 import {
   fallbackTimeZone,
   getCurrentTimeZone,
+  localDateTimeToIso,
   nowIso,
   secondsBetween,
   toLocalDate,
@@ -31,6 +32,7 @@ import type {
   ImportDataResult,
   LabelRecord,
   LabelType,
+  CreateManualFocusRecordInput,
   SleepLogRecord,
   SubmitSessionReviewInput,
   UpdateSessionReviewInput,
@@ -464,6 +466,125 @@ export async function updateSessionReview(
       }
     },
   );
+}
+
+export async function createManualFocusRecord(
+  input: CreateManualFocusRecordInput,
+): Promise<Id> {
+  if (input.attentionSwitchCount < 0) {
+    throw new Error("注意力切换次数不能为负数。");
+  }
+
+  const durationMinutes = Math.round(input.durationMinutes);
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    throw new Error("手动记录时长必须大于 0 分钟。");
+  }
+
+  if (durationMinutes > 24 * 60) {
+    throw new Error("手动记录时长不能超过 24 小时。");
+  }
+
+  const activeFocusSession = await getActiveFocusSession();
+  if (activeFocusSession) {
+    throw new Error("专注倒计时正在进行，不能手动记录。");
+  }
+
+  const pendingReviewSession = await getPendingReviewSession();
+  if (pendingReviewSession) {
+    throw new Error("还有一轮待复盘，先保存复盘后再手动记录。");
+  }
+
+  const activeBreakSession = await getActiveBreakSession();
+  if (activeBreakSession) {
+    throw new Error("休息倒计时正在进行，不能手动记录。");
+  }
+
+  const timestamp = nowIso();
+  const timeZone = getCurrentTimeZone();
+  const startedAt = localDateTimeToIso(input.localDate, input.startTime, timeZone);
+  const startedAtMs = new Date(startedAt).getTime();
+  const completedAt = new Date(startedAtMs + durationMinutes * 60_000).toISOString();
+
+  await ensureManualFocusDoesNotOverlap(startedAt, completedAt);
+
+  const previousFocusCreditMinutes = await getDailyFocusCreditMinutes(
+    input.localDate,
+  );
+  const earnedBreakMinutes = calculateNewlyEarnedBreakMinutes(
+    previousFocusCreditMinutes,
+    durationMinutes,
+  );
+  const focusSessionId = createId("manual-focus");
+  const reviewId = createId("review");
+  const labelRelations = [
+    ...input.productLabelIds.map((labelId) => ({
+      id: createId("review-label"),
+      review_id: reviewId,
+      label_id: labelId,
+      label_type: "product" as const,
+      created_at: timestamp,
+    })),
+    ...input.blockerLabelIds.map((labelId) => ({
+      id: createId("review-label"),
+      review_id: reviewId,
+      label_id: labelId,
+      label_type: "blocker" as const,
+      created_at: timestamp,
+    })),
+  ];
+
+  await db.transaction(
+    "rw",
+    db.focus_sessions,
+    db.focus_segments,
+    db.session_reviews,
+    db.session_review_labels,
+    async () => {
+      await db.focus_sessions.add({
+        id: focusSessionId,
+        local_date: input.localDate,
+        time_zone: timeZone,
+        planned_duration_minutes: durationMinutes,
+        actual_duration_minutes: durationMinutes,
+        started_at: startedAt,
+        paused_total_seconds: 0,
+        completed_at: completedAt,
+        state: "reviewed",
+        earned_break_minutes: earnedBreakMinutes,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+
+      await db.focus_segments.add({
+        id: createId("focus-segment"),
+        focus_session_id: focusSessionId,
+        local_date: input.localDate,
+        time_zone: timeZone,
+        started_at: startedAt,
+        ended_at: completedAt,
+        state: "completed",
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+
+      await db.session_reviews.add({
+        id: reviewId,
+        focus_session_id: focusSessionId,
+        status_label_id: input.statusLabelId,
+        attention_switch_count: Math.round(input.attentionSwitchCount),
+        product_note: input.productNote?.trim() || undefined,
+        blocker_note: input.blockerNote?.trim() || undefined,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+
+      if (labelRelations.length > 0) {
+        await db.session_review_labels.bulkAdd(labelRelations);
+      }
+    },
+  );
+
+  return focusSessionId;
 }
 
 export async function completeBreakTimer(
@@ -975,6 +1096,58 @@ async function getDailyFocusCreditMinutes(
   );
 }
 
+async function ensureManualFocusDoesNotOverlap(
+  startIso: string,
+  endIso: string,
+): Promise<void> {
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  const focusSessions = await db.focus_sessions.toArray();
+  const hasOverlap = focusSessions
+    .filter(
+      (session) =>
+        !session.deleted_at &&
+        session.state !== "canceled" &&
+        (session.state === "completed" || session.state === "reviewed"),
+    )
+    .some((session) => {
+      const range = getStoredFocusSessionRange(session);
+      return range ? startMs < range.endMs && endMs > range.startMs : false;
+    });
+
+  if (hasOverlap) {
+    throw new Error("手动记录时间段不能和已有专注记录重叠。");
+  }
+}
+
+function getStoredFocusSessionRange(
+  session: FocusSessionRecord,
+): { startMs: number; endMs: number } | null {
+  const startMs = new Date(session.started_at).getTime();
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+
+  const endIso =
+    session.completed_at ??
+    (typeof session.actual_duration_minutes === "number"
+      ? new Date(
+          startMs + Math.max(0, Math.round(session.actual_duration_minutes)) * 60_000,
+        ).toISOString()
+      : undefined);
+
+  if (!endIso) {
+    return null;
+  }
+
+  const endMs = new Date(endIso).getTime();
+  if (!Number.isFinite(endMs) || endMs <= startMs) {
+    return null;
+  }
+
+  return { startMs, endMs };
+}
+
 async function closeOpenArrivals(
   timestamp: string,
   requestedArrivalId?: Id,
@@ -1146,6 +1319,15 @@ async function getActiveFocusSession() {
   const sessions = await db.focus_sessions
     .where("state")
     .anyOf(["running", "paused"])
+    .toArray();
+
+  return sessions.find((session) => !session.deleted_at);
+}
+
+async function getPendingReviewSession() {
+  const sessions = await db.focus_sessions
+    .where("state")
+    .equals("completed")
     .toArray();
 
   return sessions.find((session) => !session.deleted_at);
