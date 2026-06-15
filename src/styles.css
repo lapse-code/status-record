@@ -528,9 +528,85 @@ legend {
 }
 
 .analytics-layout > .panel:first-child,
+.time-share-panel,
 .day-dot-panel,
 .notes-panel {
   grid-column: 1 / -1;
+}
+
+.analytics-toolbar,
+.analytics-range-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analytics-range-controls label {
+  min-width: 160px;
+}
+
+.analytics-range-controls input {
+  min-height: 40px;
+}
+
+.time-share-panel .panel-heading strong {
+  color: #17211d;
+  font-size: 1.2rem;
+}
+
+.time-share-bar {
+  display: flex;
+  overflow: hidden;
+  height: 18px;
+  border-radius: 999px;
+  background: #ebe8e2;
+}
+
+.time-share-bar span {
+  display: block;
+  width: var(--share-width);
+  min-width: 0;
+  background: var(--share-color);
+}
+
+.time-share-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.time-share-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e3ded5;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffdfa;
+}
+
+.time-share-list i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.time-share-list span,
+.time-share-list strong,
+.time-share-list em {
+  font-weight: 800;
+}
+
+.time-share-list em {
+  grid-column: 2 / -1;
+  color: #63707a;
+  font-style: normal;
 }
 
 .segmented-control {
@@ -1049,6 +1125,10 @@ legend {
   .distribution-grid {
     grid-template-columns: 1fr;
   }
+
+  .time-share-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px) {
@@ -1059,7 +1139,9 @@ legend {
 
   .topbar,
   .arrival-row,
-  .panel-heading {
+  .panel-heading,
+  .analytics-toolbar,
+  .analytics-range-controls {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1076,6 +1158,7 @@ legend {
   .preset-grid,
   .custom-time-form,
   .sleep-form,
+  .analytics-range-controls,
   .timeline-color-row,
   .label-row,
   .label-settings-actions {
@@ -1754,7 +1837,7 @@ textarea:focus {
 }
 
 .analytics-layout .summary-strip {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .week-timeline-layout {

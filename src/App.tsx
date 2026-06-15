@@ -814,7 +814,11 @@ export default function App() {
         ) : null}
 
         {activeTab === "analytics" ? (
-          <AnalyticsView snapshot={snapshot} now={now} />
+          <AnalyticsView
+            snapshot={snapshot}
+            now={now}
+            timelineColors={timelineColors}
+          />
         ) : null}
 
         {activeTab === "week" ? (
@@ -1583,33 +1587,35 @@ function WeekTimelineDay({
 function AnalyticsView({
   snapshot,
   now,
+  timelineColors,
 }: {
   snapshot: AppSnapshot;
   now: Date;
+  timelineColors: Record<DayTimelineCell["state"], string>;
 }) {
-  const [grain, setGrain] = useState<AnalyticsGrain>("week");
+  const [grain, setGrain] = useState<AnalyticsGrain>("day");
   const [detailFilter, setDetailFilter] = useState<DetailFilter>(null);
-  const [selectedTimelineDate, setSelectedTimelineDate] = useState<string | null>(
-    null,
+  const [analyticsAnchorDate, setAnalyticsAnchorDate] = useState(() =>
+    toLocalDate(now),
+  );
+  const analyticsRange = useMemo(
+    () => getAnalyticsRange(grain, localDateToDate(analyticsAnchorDate)),
+    [analyticsAnchorDate, grain],
   );
   const summary = useMemo<AnalyticsSummary>(
-    () => buildAnalyticsSummary(snapshot, getAnalyticsRange(grain, now), now),
-    [grain, now, snapshot],
+    () => buildAnalyticsSummary(snapshot, analyticsRange, now),
+    [analyticsRange, now, snapshot],
   );
-  const suggestedTimelineDate = useMemo(
-    () => getTimelineDate(summary.range, snapshot),
-    [snapshot, summary.range],
-  );
-  const timelineDate = isLocalDateString(selectedTimelineDate)
-    ? selectedTimelineDate
-    : suggestedTimelineDate;
+  const showDailyDetails = grain === "day";
+  const timelineDate = summary.range.startDate;
   const dayTimeline = useMemo(
-    () => buildDayTimeline(snapshot, timelineDate, now),
-    [now, snapshot, timelineDate],
+    () => (showDailyDetails ? buildDayTimeline(snapshot, timelineDate, now) : []),
+    [now, showDailyDetails, snapshot, timelineDate],
   );
   const dayTimelineTimeZoneLabel = useMemo(
-    () => getTimelineTimeZoneLabel(snapshot, timelineDate),
-    [snapshot, timelineDate],
+    () =>
+      showDailyDetails ? getTimelineTimeZoneLabel(snapshot, timelineDate) : null,
+    [showDailyDetails, snapshot, timelineDate],
   );
   const statusData = buildCountData(summary.statusCounts, snapshot.labels);
   const productData = buildCountData(summary.productLabelCounts, snapshot.labels);
@@ -1620,12 +1626,12 @@ function AnalyticsView({
       item.id !== noneBlockerLabelId &&
       item.name !== "无",
   );
-  const selectedDetailLabel = detailFilter
+  const selectedDetailLabel = showDailyDetails && detailFilter
     ? getDistributionData(detailFilter.type, statusData, productData, blockerData).find(
         (item) => item.id === detailFilter.id,
       )
     : undefined;
-  const filteredReviewEntries = detailFilter
+  const filteredReviewEntries = showDailyDetails && detailFilter
     ? summary.reviewEntries.filter((entry) =>
         matchesDetailFilter(entry, detailFilter),
       )
@@ -1638,6 +1644,13 @@ function AnalyticsView({
   }
 
   useEffect(() => {
+    if (!showDailyDetails) {
+      if (detailFilter) {
+        setDetailFilter(null);
+      }
+      return;
+    }
+
     if (
       detailFilter &&
       !getDistributionData(detailFilter.type, statusData, productData, blockerData).some(
@@ -1646,7 +1659,7 @@ function AnalyticsView({
     ) {
       setDetailFilter(null);
     }
-  }, [blockerData, detailFilter, productData, statusData]);
+  }, [blockerData, detailFilter, productData, showDailyDetails, statusData]);
 
   return (
     <main className="analytics-layout">
@@ -1658,22 +1671,35 @@ function AnalyticsView({
               {summary.range.startDate} 到 {summary.range.endDate}
             </p>
           </div>
-          <div className="segmented-control">
-            {(["day", "week", "month"] as AnalyticsGrain[]).map((item) => (
-              <button
-                key={item}
-                className={grain === item ? "selected" : ""}
-                type="button"
-                onClick={() => setGrain(item)}
-              >
-                {item === "day" ? "日" : item === "week" ? "周" : "月"}
-              </button>
-            ))}
+          <div className="analytics-toolbar">
+            <div className="segmented-control">
+              {(["day", "week", "month"] as AnalyticsGrain[]).map((item) => (
+                <button
+                  key={item}
+                  className={grain === item ? "selected" : ""}
+                  type="button"
+                  onClick={() => {
+                    setGrain(item);
+                    setDetailFilter(null);
+                  }}
+                >
+                  {item === "day" ? "日" : item === "week" ? "周" : "月"}
+                </button>
+              ))}
+            </div>
+            {grain !== "day" ? (
+              <AnalyticsRangeControls
+                anchorDate={analyticsAnchorDate}
+                grain={grain}
+                onAnchorDateChange={setAnalyticsAnchorDate}
+              />
+            ) : null}
           </div>
         </div>
 
         <div className="summary-strip">
           <StatCard label="专注时长" value={formatMinutes(summary.totalFocusMinutes)} />
+          <StatCard label="不专注" value={formatMinutes(summary.totalBlockedMinutes)} />
           <StatCard
             label="拖延"
             value={formatMinutes(summary.totalStartupDelayMinutes)}
@@ -1698,30 +1724,51 @@ function AnalyticsView({
         </div>
       </section>
 
-      <DayTimelinePanel
-        cells={dayTimeline}
-        date={timelineDate}
-        timeZoneLabel={dayTimelineTimeZoneLabel}
-        onDateChange={(date) => setSelectedTimelineDate(date)}
-        onNextDate={() =>
-          setSelectedTimelineDate((date) => shiftLocalDate(date || timelineDate, 1))
-        }
-        onPreviousDate={() =>
-          setSelectedTimelineDate((date) => shiftLocalDate(date || timelineDate, -1))
-        }
-        onToday={() => setSelectedTimelineDate(toLocalDate())}
-      />
+      <TimeSharePanel summary={summary} timelineColors={timelineColors} />
+
+      {showDailyDetails ? (
+        <DayTimelinePanel
+          cells={dayTimeline}
+          date={timelineDate}
+          timeZoneLabel={dayTimelineTimeZoneLabel}
+          onDateChange={(date) => {
+            if (isLocalDateString(date)) {
+              setAnalyticsAnchorDate(date);
+            }
+          }}
+          onNextDate={() =>
+            setAnalyticsAnchorDate((date) => shiftLocalDate(date, 1))
+          }
+          onPreviousDate={() =>
+            setAnalyticsAnchorDate((date) => shiftLocalDate(date, -1))
+          }
+          onToday={() => setAnalyticsAnchorDate(toLocalDate())}
+        />
+      ) : null}
 
       <section className="panel chart-panel">
-        <h3>专注与拖延</h3>
+        <h3>专注、不专注与拖延</h3>
         <ResponsiveContainer height={260} width="100%">
           <BarChart data={summary.trend}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" tick={{ fontSize: 12 }} />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="focusMinutes" fill="#2f855a" name="专注分钟" />
-            <Bar dataKey="startupDelayMinutes" fill="#e05c54" name="拖延" />
+            <Bar
+              dataKey="focusMinutes"
+              fill={timelineColors.focus}
+              name="专注"
+            />
+            <Bar
+              dataKey="blockedMinutes"
+              fill={timelineColors.blocked}
+              name="不专注"
+            />
+            <Bar
+              dataKey="startupDelayMinutes"
+              fill={timelineColors.startup_delay}
+              name="拖延"
+            />
           </BarChart>
         </ResponsiveContainer>
       </section>
@@ -1755,71 +1802,233 @@ function AnalyticsView({
       <DistributionPanel
         title="状态分布"
         data={statusData}
-        selectedId={detailFilter?.type === "session_status" ? detailFilter.id : null}
-        onSelect={(id) => toggleDetailFilter("session_status", id)}
+        selectedId={
+          showDailyDetails && detailFilter?.type === "session_status"
+            ? detailFilter.id
+            : null
+        }
+        onSelect={
+          showDailyDetails
+            ? (id) => toggleDetailFilter("session_status", id)
+            : undefined
+        }
       />
       <DistributionPanel
         title="产物标签"
         data={productData}
-        selectedId={detailFilter?.type === "product" ? detailFilter.id : null}
-        onSelect={(id) => toggleDetailFilter("product", id)}
+        selectedId={
+          showDailyDetails && detailFilter?.type === "product" ? detailFilter.id : null
+        }
+        onSelect={
+          showDailyDetails ? (id) => toggleDetailFilter("product", id) : undefined
+        }
       />
       <DistributionPanel
         title="不专注原因"
         data={blockerData}
         emptyText="暂无不专注原因记录。"
-        selectedId={detailFilter?.type === "blocker" ? detailFilter.id : null}
-        onSelect={(id) => toggleDetailFilter("blocker", id)}
+        selectedId={
+          showDailyDetails && detailFilter?.type === "blocker" ? detailFilter.id : null
+        }
+        onSelect={
+          showDailyDetails ? (id) => toggleDetailFilter("blocker", id) : undefined
+        }
       />
 
-      <section className="panel notes-panel">
-        <div className="notes-panel-heading">
-          <div>
-            <h3>记录明细</h3>
-            <p>
-              {selectedDetailLabel
-                ? `当前只看「${selectedDetailLabel.name}」相关记录`
-                : "点击上方状态、产物或不专注原因图表，可筛选这里的复盘记录。"}
-            </p>
+      {showDailyDetails ? (
+        <section className="panel notes-panel">
+          <div className="notes-panel-heading">
+            <div>
+              <h3>记录明细</h3>
+              <p>
+                {selectedDetailLabel
+                  ? `当前只看「${selectedDetailLabel.name}」相关记录`
+                  : "点击上方状态、产物或不专注原因图表，可筛选当天复盘记录。"}
+              </p>
+            </div>
+            {selectedDetailLabel ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setDetailFilter(null)}
+              >
+                全部
+              </button>
+            ) : null}
           </div>
-          {selectedDetailLabel ? (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => setDetailFilter(null)}
-            >
-              全部
-            </button>
-          ) : null}
-        </div>
-        {filteredReviewEntries.length > 0 ? (
-          <ul>
-            {filteredReviewEntries.map((entry) => (
-              <li key={entry.id}>
-                <div className="record-meta">
-                  <span>{entry.local_date}</span>
-                  <strong>{entry.statusLabelName}</strong>
-                  <em>{formatMinutes(entry.focusMinutes)}</em>
-                  <em>{entry.attentionSwitchCount} 次切换</em>
-                </div>
-                <div className="record-tags">
-                  <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
-                  <span>不专注原因：{entry.blockerLabelNames.join("、") || "未标记"}</span>
-                </div>
-                {entry.productNote ? <p>产物记录：{entry.productNote}</p> : null}
-                {entry.blockerNote ? <p>不专注记录：{entry.blockerNote}</p> : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty-text">
-            {selectedDetailLabel
-              ? `这个时间范围内没有「${selectedDetailLabel.name}」相关复盘记录。`
-              : "这个时间范围内还没有复盘记录。"}
-          </p>
-        )}
-      </section>
+          {filteredReviewEntries.length > 0 ? (
+            <ul>
+              {filteredReviewEntries.map((entry) => (
+                <li key={entry.id}>
+                  <div className="record-meta">
+                    <span>{entry.local_date}</span>
+                    <strong>{entry.statusLabelName}</strong>
+                    <em>{formatMinutes(entry.focusMinutes)}</em>
+                    <em>{entry.attentionSwitchCount} 次切换</em>
+                  </div>
+                  <div className="record-tags">
+                    <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
+                    <span>不专注原因：{entry.blockerLabelNames.join("、") || "未标记"}</span>
+                  </div>
+                  {entry.productNote ? <p>产物记录：{entry.productNote}</p> : null}
+                  {entry.blockerNote ? <p>不专注记录：{entry.blockerNote}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-text">
+              {selectedDetailLabel
+                ? `当天没有「${selectedDetailLabel.name}」相关复盘记录。`
+                : "当天还没有复盘记录。"}
+            </p>
+          )}
+        </section>
+      ) : null}
     </main>
+  );
+}
+
+function AnalyticsRangeControls({
+  anchorDate,
+  grain,
+  onAnchorDateChange,
+}: {
+  anchorDate: string;
+  grain: Exclude<AnalyticsGrain, "day">;
+  onAnchorDateChange: (date: string) => void;
+}) {
+  const isWeek = grain === "week";
+
+  return (
+    <div className="analytics-range-controls">
+      <button
+        className="ghost-button"
+        type="button"
+        onClick={() =>
+          onAnchorDateChange(
+            isWeek ? shiftLocalDate(anchorDate, -7) : shiftLocalMonth(anchorDate, -1),
+          )
+        }
+      >
+        <ChevronLeft size={16} />
+        {isWeek ? "上一周" : "上一月"}
+      </button>
+      <label>
+        {isWeek ? "日期" : "月份"}
+        <input
+          aria-label={isWeek ? "统计日期" : "统计月份"}
+          type={isWeek ? "date" : "month"}
+          value={isWeek ? anchorDate : anchorDate.slice(0, 7)}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            const nextDate = isWeek ? nextValue : `${nextValue}-01`;
+
+            if (isLocalDateString(nextDate)) {
+              onAnchorDateChange(nextDate);
+            }
+          }}
+        />
+      </label>
+      <button
+        className="ghost-button"
+        type="button"
+        onClick={() =>
+          onAnchorDateChange(
+            isWeek ? shiftLocalDate(anchorDate, 7) : shiftLocalMonth(anchorDate, 1),
+          )
+        }
+      >
+        {isWeek ? "下一周" : "下一月"}
+        <ChevronRight size={16} />
+      </button>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => onAnchorDateChange(toLocalDate())}
+      >
+        {isWeek ? "本周" : "本月"}
+      </button>
+    </div>
+  );
+}
+
+function TimeSharePanel({
+  summary,
+  timelineColors,
+}: {
+  summary: AnalyticsSummary;
+  timelineColors: Record<DayTimelineCell["state"], string>;
+}) {
+  const items = [
+    {
+      key: "focus" as const,
+      label: "专注",
+      minutes: summary.totalFocusMinutes,
+      color: timelineColors.focus,
+    },
+    {
+      key: "blocked" as const,
+      label: "不专注",
+      minutes: summary.totalBlockedMinutes,
+      color: timelineColors.blocked,
+    },
+    {
+      key: "startup_delay" as const,
+      label: "拖延",
+      minutes: summary.totalStartupDelayMinutes,
+      color: timelineColors.startup_delay,
+    },
+  ];
+  const totalMinutes = items.reduce((sum, item) => sum + item.minutes, 0);
+
+  return (
+    <section className="panel time-share-panel">
+      <div className="panel-heading">
+        <div>
+          <h3>时间占比</h3>
+          <p>专注 + 不专注 + 拖延 = 100%，休息不进入分母。</p>
+        </div>
+        <strong>{totalMinutes > 0 ? formatMinutes(totalMinutes) : "暂无"}</strong>
+      </div>
+      {totalMinutes > 0 ? (
+        <>
+          <div className="time-share-bar" aria-label="专注、不专注和拖延时间占比">
+            {items.map((item) => {
+              const percent = (item.minutes / totalMinutes) * 100;
+
+              return (
+                <span
+                  key={item.key}
+                  style={
+                    {
+                      "--share-width": `${percent}%`,
+                      "--share-color": item.color,
+                    } as React.CSSProperties
+                  }
+                  title={`${item.label} ${formatMinutes(item.minutes)} · ${formatPercent(percent)}`}
+                />
+              );
+            })}
+          </div>
+          <ul className="time-share-list">
+            {items.map((item) => {
+              const percent = (item.minutes / totalMinutes) * 100;
+
+              return (
+                <li key={item.key}>
+                  <i style={{ background: item.color }} />
+                  <span>{item.label}</span>
+                  <strong>{formatPercent(percent)}</strong>
+                  <em>{formatMinutes(item.minutes)}</em>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : (
+        <p className="empty-text">这个时间范围内暂无专注、不专注或拖延记录。</p>
+      )}
+    </section>
   );
 }
 
@@ -2008,6 +2217,14 @@ function getTimelineLayout(
 
 function formatTimelineLegendDuration(durationMs: number) {
   return formatMinutes(durationMs / 60_000);
+}
+
+function formatPercent(value: number): string {
+  if (value > 0 && value < 1) {
+    return "< 1%";
+  }
+
+  return `${Math.round(value)}%`;
 }
 
 function getTimelineCellStyle(cell: DayTimelineCell): React.CSSProperties {
@@ -2684,24 +2901,6 @@ function isLocalDateString(value: string | null): value is string {
   return !Number.isNaN(parsedDate.getTime()) && toLocalDate(parsedDate) === value;
 }
 
-function getTimelineDate(
-  range: AnalyticsSummary["range"],
-  snapshot: AppSnapshot,
-): string {
-  if (range.grain === "day") {
-    return range.startDate;
-  }
-
-  const dates = [
-    ...snapshot.focusSessions.map((session) => session.local_date),
-    ...snapshot.arrivalSessions.map((arrival) => arrival.local_date),
-  ]
-    .filter((date) => date >= range.startDate && date <= range.endDate)
-    .sort((a, b) => b.localeCompare(a));
-
-  return dates[0] ?? range.endDate;
-}
-
 function getTimelineTimeZoneLabel(
   snapshot: AppSnapshot,
   localDate: string,
@@ -2729,9 +2928,26 @@ function getTimelineTimeZoneLabel(
   return `多时区 ${zones.size} 个`;
 }
 
+function localDateToDate(date: string): Date {
+  return new Date(`${date}T00:00:00`);
+}
+
 function shiftLocalDate(date: string, dayDelta: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setDate(value.getDate() + dayDelta);
+  return toLocalDate(value);
+}
+
+function shiftLocalMonth(date: string, monthDelta: number): string {
+  const [year = 1970, month = 1, day = 1] = date.split("-").map(Number);
+  const value = new Date(year, month - 1 + monthDelta, 1);
+  const lastDayOfTargetMonth = new Date(
+    value.getFullYear(),
+    value.getMonth() + 1,
+    0,
+  ).getDate();
+
+  value.setDate(Math.min(day, lastDayOfTargetMonth));
   return toLocalDate(value);
 }
 

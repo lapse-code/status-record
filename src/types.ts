@@ -220,6 +220,7 @@ export interface ReviewDetailEntry {
 export interface AnalyticsTrendPoint {
   date: LocalDate;
   focusMinutes: number;
+  blockedMinutes: number;
   startupDelayMinutes: number;
   attentionSwitchCount: number;
   sleepDurationHours?: number;
@@ -245,6 +246,7 @@ export interface DayTimelineCell {
 export interface AnalyticsSummary {
   range: AnalyticsRange;
   totalFocusMinutes: number;
+  totalBlockedMinutes: number;
   totalStartupDelayMinutes: number;
   averageStartupDelayMinutes: number | null;
   totalAttentionSwitchCount: number;

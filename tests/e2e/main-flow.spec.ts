@@ -682,10 +682,33 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("已加载 10 天示例数据")).toBeVisible();
 
   await page.getByRole("button", { name: "统计" }).click();
-  await page.getByRole("button", { name: "月" }).click();
+  await page.getByRole("button", { name: "月", exact: true }).click();
 
-  await expect(page.getByText("13 小时 45 分钟")).toBeVisible();
-  await expect(page.getByText("完成统计页面图表")).toBeVisible();
+  await expect(
+    page.locator(".stat-card").filter({ hasText: "专注时长" }).getByText("8 小时 55 分钟"),
+  ).toBeVisible();
+  await expect(
+    page.locator(".stat-card").filter({ hasText: "不专注" }).getByText("4 小时 50 分钟"),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "时间占比" })).toBeVisible();
+  await expect(page.getByText("休息不进入分母")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "记录明细" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "日点阵" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "周", exact: true }).click();
+  await expect(page.getByText("2026-06-08 到 2026-06-14")).toBeVisible();
+  await expect(page.getByRole("button", { name: "上一周" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "记录明细" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "日点阵" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "月", exact: true }).click();
+  await page.getByRole("button", { name: "上一月" }).click();
+  await expect(page.getByText("2026-05-01 到 2026-05-31")).toBeVisible();
+  await page.getByRole("button", { name: "下一月" }).click();
+  await expect(page.getByText("2026-06-01 到 2026-06-30")).toBeVisible();
+
+  await page.getByRole("button", { name: "日", exact: true }).click();
+  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-10");
   await expect(page.getByRole("heading", { name: "记录明细" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "日点阵" })).toBeVisible();
   await expect(
@@ -712,25 +735,31 @@ test("loads demo data into analytics", async ({ page }) => {
       /2026-06-04( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
     ),
   ).toBeVisible();
+  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-09");
+  await expect(
+    page.getByText(
+      /2026-06-09( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
+    ),
+  ).toBeVisible();
 
   const productPanel = page.locator(".chart-panel").filter({ hasText: "产物标签" });
-  await productPanel.getByRole("button", { name: "文件 4" }).click();
+  await productPanel.getByRole("button", { name: "文件 1" }).click();
   await expect(page.getByText("当前只看「文件」相关记录")).toBeVisible();
-  await expect(page.getByText("整理发布前检查清单。")).toBeVisible();
+  await expect(page.getByText("补了一部分测试策略文档。")).toBeVisible();
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
 
-  await productPanel.locator(".recharts-pie-sector path").first().click();
+  await productPanel.getByRole("button", { name: "代码 1" }).click();
   await expect(page.getByText("当前只看「代码」相关记录")).toBeVisible();
-  await expect(page.getByText("完成统计页面图表。")).toBeVisible();
+  await expect(page.getByText("完成睡眠记录和标签管理。")).toBeVisible();
 
   const statusPanel = page.locator(".chart-panel").filter({ hasText: "状态分布" });
-  await statusPanel.getByRole("button", { name: "被打断 2" }).click();
-  await expect(page.getByText("当前只看「被打断」相关记录")).toBeVisible();
-  await expect(page.getByText("写复盘弹窗时被会议打断。")).toBeVisible();
+  await statusPanel.getByRole("button", { name: "部分完成 1" }).click();
+  await expect(page.getByText("当前只看「部分完成」相关记录")).toBeVisible();
+  await expect(page.getByText("补了一部分测试策略文档。")).toBeVisible();
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
 
   const blockerPanel = page.locator(".chart-panel").filter({ hasText: "不专注原因" });
-  await blockerPanel.getByRole("button", { name: "太累 2" }).click();
+  await blockerPanel.getByRole("button", { name: "太累 1" }).click();
   await expect(page.getByText("当前只看「太累」相关记录")).toBeVisible();
   await expect(page.getByText("睡眠不足，写文档时注意力维持不住。")).toBeVisible();
   await expect(page.getByText("完成统计页面图表。")).not.toBeVisible();
@@ -792,11 +821,15 @@ test("imports a JSON backup into local records", async ({ page }) => {
 
   await expect(page.getByText("已导入 7 条记录。")).toBeVisible();
   await page.getByRole("button", { name: "统计" }).click();
-  await page.getByRole("button", { name: "月" }).click();
+  await page.getByRole("button", { name: "月", exact: true }).click();
 
   await expect(
     page.locator(".stat-card").filter({ hasText: "专注时长" }).getByText("25 分钟"),
   ).toBeVisible();
   await expect(page.getByText("暂无不专注原因记录。")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "记录明细" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "日", exact: true }).click();
+  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-11");
   await expect(page.getByText("导入备份里的可见产物记录")).toBeVisible();
 });

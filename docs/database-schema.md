@@ -276,6 +276,7 @@
 | local_date | string | 日期，主键 |
 | time_zone | string | 聚合归属时区，可选 |
 | focus_minutes | number | 当日专注分钟 |
+| blocked_minutes | number | 当日不专注分钟 |
 | startup_delay_minutes | number | 当日拖延分钟，内部仍沿用 startup delay 字段名 |
 | attention_switch_count | number | 当日注意力切换 |
 | earned_break_minutes | number | 当日新增休息 |

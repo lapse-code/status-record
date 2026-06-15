@@ -319,6 +319,7 @@ interface AnalyticsRangeInput {
 interface AnalyticsSummary {
   range: AnalyticsRangeInput;
   totalFocusMinutes: number;
+  totalBlockedMinutes: number;
   totalStartupDelayMinutes: number;
   averageStartupDelayMinutes: number | null;
   totalAttentionSwitchCount: number;
@@ -331,6 +332,7 @@ interface AnalyticsSummary {
   trend: Array<{
     date: LocalDate;
     focusMinutes: number;
+    blockedMinutes: number;
     startupDelayMinutes: number;
     attentionSwitchCount: number;
     sleepDurationHours?: number;
@@ -358,11 +360,13 @@ interface AnalyticsSummary {
 
 规则：
 
-- 专注、切换、状态和标签统计基于已完成并已复盘的 focus sessions。
-- `totalStartupDelayMinutes` 和 trend 中的 `startupDelayMinutes` 必须从 `buildDayTimeline` 的 `startup_delay` 真实时长汇总得到；UI 中称为“拖延”，并且必须等于点阵红色真实时长总和。
+- `totalFocusMinutes`、`totalBlockedMinutes`、`totalStartupDelayMinutes` 以及 trend 中的 `focusMinutes`、`blockedMinutes`、`startupDelayMinutes` 必须从 `buildDayTimeline` 的真实状态时长汇总得到，不按主色点数量统计。
+- UI 中 `startup_delay` 显示为“拖延”，`blocked` 显示为“不专注”，并且必须等于点阵对应颜色的真实时长总和。
+- 统计页“时间占比”使用方案 A：专注 + 不专注 + 拖延 = 100%，休息 `break` 不进入分母。
+- 注意力切换、状态分布和标签分布基于已完成并已复盘的 focus sessions。
 - 统计日期使用记录保存的 `local_date`；不要用当前设备时区重新计算历史记录日期。
 - 睡眠统计按日期 join，不要求每个学习日都有睡眠记录。
-- 复盘明细必须保留状态、产物、不专注原因的标签 id 和名称，用于统计页按状态、产物或不专注原因筛选“记录明细”。
+- 复盘明细必须保留状态、产物、不专注原因的标签 id 和名称，用于统计页日视图按状态、产物或不专注原因筛选当天“记录明细”。
 - `blockerLabelCounts` 作为底层聚合会保留默认“无”，用于历史数据完整性；统计页“不专注原因”图表在展示层排除“无”，没有其他原因时显示“暂无不专注原因记录”。
 
 ### buildDayTimeline

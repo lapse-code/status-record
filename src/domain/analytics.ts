@@ -123,8 +123,12 @@ export function buildAnalyticsSummary(
   );
   const trend = buildTrend(range, reviewedFocusSessions, reviews, snapshot, now);
 
-  const totalFocusMinutes = reviewedFocusSessions.reduce(
-    (sum, session) => sum + (session.actual_duration_minutes ?? 0),
+  const totalFocusMinutes = trend.reduce(
+    (sum, day) => sum + day.focusMinutes,
+    0,
+  );
+  const totalBlockedMinutes = trend.reduce(
+    (sum, day) => sum + day.blockedMinutes,
     0,
   );
   const totalStartupDelayMinutes = trend.reduce(
@@ -154,6 +158,7 @@ export function buildAnalyticsSummary(
   return {
     range,
     totalFocusMinutes,
+    totalBlockedMinutes,
     totalStartupDelayMinutes,
     averageStartupDelayMinutes:
       activeDelayDayCount > 0 ? totalStartupDelayMinutes / activeDelayDayCount : null,
@@ -364,20 +369,18 @@ function buildTrend(
       (session) => session.local_date === date,
     );
     const dayTimeline = buildDayTimeline(snapshot, date, now);
-    const startupDelayMinutes = minutesFromTimelineDuration(
-      sumTimelineCellDurations(dayTimeline).startup_delay,
-    );
+    const durationMsByState = sumTimelineCellDurations(dayTimeline);
     const daySleep = snapshot.sleepLogs.find(
       (sleep) => sleep.local_date === date && !sleep.deleted_at,
     );
 
     return {
       date,
-      focusMinutes: dayFocusSessions.reduce(
-        (sum, session) => sum + (session.actual_duration_minutes ?? 0),
-        0,
+      focusMinutes: minutesFromTimelineDuration(durationMsByState.focus),
+      blockedMinutes: minutesFromTimelineDuration(durationMsByState.blocked),
+      startupDelayMinutes: minutesFromTimelineDuration(
+        durationMsByState.startup_delay,
       ),
-      startupDelayMinutes,
       attentionSwitchCount: dayFocusSessions.reduce((sum, session) => {
         return sum + (reviewByFocusId.get(session.id)?.attention_switch_count ?? 0);
       }, 0),
