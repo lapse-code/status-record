@@ -98,12 +98,6 @@ interface SubmitSessionReviewInput {
   breakChoice: "use_now" | "save_for_later";
   breakMinutesUsed?: number;
 }
-
-interface SubmitSessionReviewResult {
-  reviewId: Id;
-  focusSessionId: Id;
-  breakBalanceMinutes: number;
-}
 ```
 
 规则：
@@ -115,6 +109,31 @@ interface SubmitSessionReviewResult {
 - `breakChoice = "use_now"` 时，`breakMinutesUsed` 必须大于 0，并创建休息倒计时。
 - `breakChoice = "save_for_later"` 时，不扣余额，不关闭或重开 arrival session；如果用户仍到岗，后续等待自然继续算拖延。
 - 提交后 focus session 状态变为 `reviewed`。
+- 当前实现保存成功后返回 `Promise<void>`，调用方通过重新读取 snapshot 刷新 UI。
+
+### updateSessionReview
+
+```ts
+interface UpdateSessionReviewInput {
+  reviewId: Id;
+  statusLabelId: Id;
+  attentionSwitchCount: number;
+  productLabelIds: Id[];
+  productNote?: string;
+  blockerLabelIds: Id[];
+  blockerNote?: string;
+}
+```
+
+规则：
+
+- 只允许更新已有复盘记录的复盘参数。
+- 可更新状态、注意力切换次数、产物标签、产物文字、不专注原因标签和不专注原因文字。
+- 不修改 `focus_sessions` 的开始/结束时间、真实专注时长、状态、休息奖励或到岗记录。
+- 不修改 `break_bank_transactions` 或 `break_sessions`，因此不会新增、扣除或回滚休息余额。
+- 更新时会替换该 review 下的产物和不专注原因标签关联。
+- `attentionSwitchCount` 必须是 0 或正整数。
+- 保存成功后调用方应重新读取 snapshot，刷新统计、点阵和记录明细。
 
 ## Break Timer Service
 

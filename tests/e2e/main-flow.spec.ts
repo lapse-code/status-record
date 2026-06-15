@@ -708,7 +708,7 @@ test("loads demo data into analytics", async ({ page }) => {
   await expect(page.getByText("2026-06-01 到 2026-06-30")).toBeVisible();
 
   await page.getByRole("button", { name: "日", exact: true }).click();
-  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-10");
+  await page.getByRole("textbox", { name: "统计日期" }).fill("2026-06-10");
   await expect(page.getByRole("heading", { name: "记录明细" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "日点阵" })).toBeVisible();
   await expect(
@@ -723,7 +723,7 @@ test("loads demo data into analytics", async ({ page }) => {
       /2026-06-09( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
     ),
   ).toBeVisible();
-  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-03");
+  await page.getByRole("textbox", { name: "统计日期" }).fill("2026-06-03");
   await expect(
     page.getByText(
       /2026-06-03( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
@@ -735,7 +735,7 @@ test("loads demo data into analytics", async ({ page }) => {
       /2026-06-04( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
     ),
   ).toBeVisible();
-  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-09");
+  await page.getByRole("textbox", { name: "统计日期" }).fill("2026-06-09");
   await expect(
     page.getByText(
       /2026-06-09( · 时区 Asia\/Tokyo)? · 每点 5 分钟 · 每列 (30 分钟|1 小时)/,
@@ -830,6 +830,13 @@ test("imports a JSON backup into local records", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "记录明细" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "日", exact: true }).click();
-  await page.getByRole("textbox", { name: "点阵日期" }).fill("2026-06-11");
+  await page.getByRole("textbox", { name: "统计日期" }).fill("2026-06-11");
   await expect(page.getByText("导入备份里的可见产物记录")).toBeVisible();
+  await page.getByRole("button", { name: "编辑" }).click();
+  await page
+    .getByPlaceholder("这轮实际产出了什么？")
+    .fill("编辑后的可见产物记录");
+  await page.getByRole("button", { name: "保存修改" }).click();
+  await expect(page.getByText("复盘记录已更新。")).toBeVisible();
+  await expect(page.getByText("编辑后的可见产物记录")).toBeVisible();
 });

@@ -33,6 +33,7 @@ import type {
   LabelType,
   SleepLogRecord,
   SubmitSessionReviewInput,
+  UpdateSessionReviewInput,
 } from "../types";
 
 export async function loadSnapshot(): Promise<AppSnapshot> {
@@ -406,6 +407,61 @@ export async function submitSessionReview(
         state: "reviewed",
         updated_at: timestamp,
       });
+    },
+  );
+}
+
+export async function updateSessionReview(
+  input: UpdateSessionReviewInput,
+): Promise<void> {
+  if (input.attentionSwitchCount < 0) {
+    throw new Error("注意力切换次数不能为负数。");
+  }
+
+  const review = await db.session_reviews.get(input.reviewId);
+  if (!review || review.deleted_at) {
+    throw new Error("找不到要编辑的复盘记录。");
+  }
+
+  const timestamp = nowIso();
+  const labelRelations = [
+    ...input.productLabelIds.map((labelId) => ({
+      id: createId("review-label"),
+      review_id: input.reviewId,
+      label_id: labelId,
+      label_type: "product" as const,
+      created_at: timestamp,
+    })),
+    ...input.blockerLabelIds.map((labelId) => ({
+      id: createId("review-label"),
+      review_id: input.reviewId,
+      label_id: labelId,
+      label_type: "blocker" as const,
+      created_at: timestamp,
+    })),
+  ];
+
+  await db.transaction(
+    "rw",
+    db.session_reviews,
+    db.session_review_labels,
+    async () => {
+      await db.session_reviews.update(input.reviewId, {
+        status_label_id: input.statusLabelId,
+        attention_switch_count: Math.round(input.attentionSwitchCount),
+        product_note: input.productNote?.trim() || undefined,
+        blocker_note: input.blockerNote?.trim() || undefined,
+        updated_at: timestamp,
+      });
+
+      await db.session_review_labels
+        .where("review_id")
+        .equals(input.reviewId)
+        .delete();
+
+      if (labelRelations.length > 0) {
+        await db.session_review_labels.bulkAdd(labelRelations);
+      }
     },
   );
 }

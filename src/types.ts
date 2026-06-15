@@ -194,6 +194,16 @@ export interface SubmitSessionReviewInput {
   breakMinutesUsed?: number;
 }
 
+export interface UpdateSessionReviewInput {
+  reviewId: Id;
+  statusLabelId: Id;
+  attentionSwitchCount: number;
+  productLabelIds: Id[];
+  productNote?: string;
+  blockerLabelIds: Id[];
+  blockerNote?: string;
+}
+
 export interface AnalyticsRange {
   startDate: LocalDate;
   endDate: LocalDate;

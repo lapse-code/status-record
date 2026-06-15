@@ -29,7 +29,6 @@ import {
   Palette,
   Play,
   Plus,
-  RotateCcw,
   Save,
   Settings as SettingsIcon,
   Square,
@@ -51,7 +50,6 @@ import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
   activeLabelsByType,
   getNoneBlockerLabel,
-  labelNameById,
 } from "./domain/labels";
 import { focusStatusLabelId } from "./defaults";
 import {
@@ -78,6 +76,7 @@ import {
   startBreakTimer,
   startFocusTimer,
   submitSessionReview,
+  updateSessionReview,
   updateLabel,
   updateAppSetting,
   upsertSleepLog,
@@ -95,6 +94,7 @@ import type {
   LabelRecord,
   LabelType,
   SubmitSessionReviewInput,
+  UpdateSessionReviewInput,
 } from "./types";
 
 type TabId = "today" | "week" | "analytics" | "labels";
@@ -808,8 +808,6 @@ export default function App() {
               }
               onToday={() => setTodayTimelineDate(toLocalDate())}
             />
-
-            <RecentSessions snapshot={snapshot} />
           </main>
         ) : null}
 
@@ -818,6 +816,8 @@ export default function App() {
             snapshot={snapshot}
             now={now}
             timelineColors={timelineColors}
+            onChanged={refresh}
+            onMessage={setMessage}
           />
         ) : null}
 
@@ -1128,6 +1128,175 @@ function parseEnergyInput(value: string, fallbackScore: 1 | 2 | 3 | 4 | 5) {
     : fallbackScore;
 }
 
+type ReviewFormValues = {
+  statusLabelId: Id;
+  attentionSwitchCount: number;
+  productLabelIds: Id[];
+  productNote: string;
+  blockerLabelIds: Id[];
+  blockerNote: string;
+};
+
+function selectableLabelsByType(
+  labels: LabelRecord[],
+  type: LabelType,
+  selectedIds: Id[],
+): LabelRecord[] {
+  const selectedIdSet = new Set(selectedIds);
+
+  return labels
+    .filter(
+      (label) =>
+        label.type === type &&
+        !label.deleted_at &&
+        (label.is_active || selectedIdSet.has(label.id)),
+    )
+    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+}
+
+function ReviewFormFields({
+  labels,
+  values,
+  onStatusLabelChange,
+  onAttentionSwitchCountChange,
+  onProductLabelIdsChange,
+  onProductNoteChange,
+  onBlockerLabelIdsChange,
+  onBlockerNoteChange,
+}: {
+  labels: LabelRecord[];
+  values: ReviewFormValues;
+  onStatusLabelChange: (labelId: Id) => void;
+  onAttentionSwitchCountChange: (count: number) => void;
+  onProductLabelIdsChange: (labelIds: Id[]) => void;
+  onProductNoteChange: (note: string) => void;
+  onBlockerLabelIdsChange: (labelIds: Id[]) => void;
+  onBlockerNoteChange: (note: string) => void;
+}) {
+  const statusLabels = selectableLabelsByType(labels, "session_status", [
+    values.statusLabelId,
+  ]);
+  const productLabels = selectableLabelsByType(
+    labels,
+    "product",
+    values.productLabelIds,
+  );
+  const blockerLabels = selectableLabelsByType(
+    labels,
+    "blocker",
+    values.blockerLabelIds,
+  );
+  const noneBlocker = getNoneBlockerLabel(labels);
+
+  function toggleProduct(labelId: Id) {
+    onProductLabelIdsChange(
+      values.productLabelIds.includes(labelId)
+        ? values.productLabelIds.filter((id) => id !== labelId)
+        : [...values.productLabelIds, labelId],
+    );
+  }
+
+  function toggleBlocker(label: LabelRecord) {
+    if (noneBlocker && label.id === noneBlocker.id) {
+      onBlockerLabelIdsChange(
+        values.blockerLabelIds.includes(label.id) ? [] : [label.id],
+      );
+      return;
+    }
+
+    const withoutNone = noneBlocker
+      ? values.blockerLabelIds.filter((id) => id !== noneBlocker.id)
+      : values.blockerLabelIds;
+
+    onBlockerLabelIdsChange(
+      withoutNone.includes(label.id)
+        ? withoutNone.filter((id) => id !== label.id)
+        : [...withoutNone, label.id],
+    );
+  }
+
+  return (
+    <>
+      <fieldset>
+        <legend>状态</legend>
+        <div className="chip-grid">
+          {statusLabels.map((label) => (
+            <button
+              key={label.id}
+              className={values.statusLabelId === label.id ? "chip selected" : "chip"}
+              style={{ "--chip-color": label.color } as React.CSSProperties}
+              type="button"
+              onClick={() => onStatusLabelChange(label.id)}
+            >
+              {label.name}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <label>
+        注意力切换次数
+        <input
+          min={0}
+          type="number"
+          value={values.attentionSwitchCount}
+          onChange={(event) =>
+            onAttentionSwitchCountChange(Number(event.currentTarget.value))
+          }
+        />
+      </label>
+
+      <fieldset>
+        <legend>可见产物</legend>
+        <div className="chip-grid">
+          {productLabels.map((label) => (
+            <button
+              key={label.id}
+              className={
+                values.productLabelIds.includes(label.id) ? "chip selected" : "chip"
+              }
+              style={{ "--chip-color": label.color } as React.CSSProperties}
+              type="button"
+              onClick={() => toggleProduct(label.id)}
+            >
+              {label.name}
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={values.productNote}
+          placeholder="这轮实际产出了什么？"
+          onChange={(event) => onProductNoteChange(event.currentTarget.value)}
+        />
+      </fieldset>
+
+      <fieldset>
+        <legend>不专注原因</legend>
+        <div className="chip-grid">
+          {blockerLabels.map((label) => (
+            <button
+              key={label.id}
+              className={
+                values.blockerLabelIds.includes(label.id) ? "chip selected" : "chip"
+              }
+              style={{ "--chip-color": label.color } as React.CSSProperties}
+              type="button"
+              onClick={() => toggleBlocker(label)}
+            >
+              {label.name}
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={values.blockerNote}
+          placeholder="可选：补充说明不专注原因"
+          onChange={(event) => onBlockerNoteChange(event.currentTarget.value)}
+        />
+      </fieldset>
+    </>
+  );
+}
+
 function ReviewModal({
   focusSession,
   labels,
@@ -1140,8 +1309,6 @@ function ReviewModal({
   onSubmit: (input: SubmitSessionReviewInput) => Promise<void>;
 }) {
   const statusLabels = activeLabelsByType(labels, "session_status");
-  const productLabels = activeLabelsByType(labels, "product");
-  const blockerLabels = activeLabelsByType(labels, "blocker");
   const noneBlocker = getNoneBlockerLabel(labels);
   const [statusLabelId, setStatusLabelId] = useState(statusLabels[0]?.id ?? "");
   const [attentionSwitchCount, setAttentionSwitchCount] = useState(0);
@@ -1161,30 +1328,14 @@ function ReviewModal({
     ),
   );
   const [error, setError] = useState("");
-
-  function toggleProduct(labelId: Id) {
-    setProductLabelIds((current) =>
-      current.includes(labelId)
-        ? current.filter((id) => id !== labelId)
-        : [...current, labelId],
-    );
-  }
-
-  function toggleBlocker(label: LabelRecord) {
-    setBlockerLabelIds((current) => {
-      if (noneBlocker && label.id === noneBlocker.id) {
-        return current.includes(label.id) ? [] : [label.id];
-      }
-
-      const withoutNone = noneBlocker
-        ? current.filter((id) => id !== noneBlocker.id)
-        : current;
-
-      return withoutNone.includes(label.id)
-        ? withoutNone.filter((id) => id !== label.id)
-        : [...withoutNone, label.id];
-    });
-  }
+  const reviewValues: ReviewFormValues = {
+    statusLabelId,
+    attentionSwitchCount,
+    productLabelIds,
+    productNote,
+    blockerLabelIds,
+    blockerNote,
+  };
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -1237,82 +1388,16 @@ function ReviewModal({
 
         {error ? <div className="form-error">{error}</div> : null}
 
-        <fieldset>
-          <legend>状态</legend>
-          <div className="chip-grid">
-            {statusLabels.map((label) => (
-              <button
-                key={label.id}
-                className={statusLabelId === label.id ? "chip selected" : "chip"}
-                style={{ "--chip-color": label.color } as React.CSSProperties}
-                type="button"
-                onClick={() => setStatusLabelId(label.id)}
-              >
-                {label.name}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-
-        <label>
-          注意力切换次数
-          <input
-            min={0}
-            type="number"
-            value={attentionSwitchCount}
-            onChange={(event) =>
-              setAttentionSwitchCount(Number(event.currentTarget.value))
-            }
-          />
-        </label>
-
-        <fieldset>
-          <legend>可见产物</legend>
-          <div className="chip-grid">
-            {productLabels.map((label) => (
-              <button
-                key={label.id}
-                className={
-                  productLabelIds.includes(label.id) ? "chip selected" : "chip"
-                }
-                style={{ "--chip-color": label.color } as React.CSSProperties}
-                type="button"
-                onClick={() => toggleProduct(label.id)}
-              >
-                {label.name}
-              </button>
-            ))}
-          </div>
-          <textarea
-            value={productNote}
-            placeholder="这轮实际产出了什么？"
-            onChange={(event) => setProductNote(event.currentTarget.value)}
-          />
-        </fieldset>
-
-        <fieldset>
-          <legend>不专注原因</legend>
-          <div className="chip-grid">
-            {blockerLabels.map((label) => (
-              <button
-                key={label.id}
-                className={
-                  blockerLabelIds.includes(label.id) ? "chip selected" : "chip"
-                }
-                style={{ "--chip-color": label.color } as React.CSSProperties}
-                type="button"
-                onClick={() => toggleBlocker(label)}
-              >
-                {label.name}
-              </button>
-            ))}
-          </div>
-          <textarea
-            value={blockerNote}
-            placeholder="可选：补充说明不专注原因"
-            onChange={(event) => setBlockerNote(event.currentTarget.value)}
-          />
-        </fieldset>
+        <ReviewFormFields
+          labels={labels}
+          values={reviewValues}
+          onStatusLabelChange={setStatusLabelId}
+          onAttentionSwitchCountChange={setAttentionSwitchCount}
+          onProductLabelIdsChange={setProductLabelIds}
+          onProductNoteChange={setProductNote}
+          onBlockerLabelIdsChange={setBlockerLabelIds}
+          onBlockerNoteChange={setBlockerNote}
+        />
 
         <fieldset>
           <legend>休息提醒</legend>
@@ -1359,6 +1444,122 @@ function ReviewModal({
           <Save size={18} />
           保存复盘
         </button>
+      </form>
+    </div>
+  );
+}
+
+function EditReviewModal({
+  entry,
+  labels,
+  onSubmit,
+  onCancel,
+}: {
+  entry: AnalyticsSummary["reviewEntries"][number];
+  labels: LabelRecord[];
+  onSubmit: (input: UpdateSessionReviewInput) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const noneBlocker = getNoneBlockerLabel(labels);
+  const [values, setValues] = useState<ReviewFormValues>({
+    statusLabelId: entry.statusLabelId,
+    attentionSwitchCount: entry.attentionSwitchCount,
+    productLabelIds: entry.productLabelIds,
+    productNote: entry.productNote ?? "",
+    blockerLabelIds:
+      entry.blockerLabelIds.length > 0
+        ? entry.blockerLabelIds
+        : noneBlocker
+          ? [noneBlocker.id]
+          : [],
+    blockerNote: entry.blockerNote ?? "",
+  });
+  const [error, setError] = useState("");
+
+  function patchValues(patch: Partial<ReviewFormValues>) {
+    setValues((current) => ({ ...current, ...patch }));
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form
+        className="review-modal"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!values.statusLabelId) {
+            setError("请选择本轮状态。");
+            return;
+          }
+
+          const finalBlockerIds =
+            values.blockerLabelIds.length > 0
+              ? values.blockerLabelIds
+              : noneBlocker
+                ? [noneBlocker.id]
+                : [];
+
+          try {
+            await onSubmit({
+              reviewId: entry.id,
+              statusLabelId: values.statusLabelId,
+              attentionSwitchCount: values.attentionSwitchCount,
+              productLabelIds: values.productLabelIds,
+              productNote: values.productNote,
+              blockerLabelIds: finalBlockerIds,
+              blockerNote: values.blockerNote,
+            });
+          } catch (submitError) {
+            setError(
+              submitError instanceof Error ? submitError.message : "复盘更新失败。",
+            );
+          }
+        }}
+      >
+        <div className="panel-heading">
+          <div>
+            <h2>编辑复盘记录</h2>
+            <p>
+              只修改这条记录的复盘参数，不改变专注时长、休息余额或计时记录。
+            </p>
+          </div>
+          <button
+            aria-label="关闭编辑"
+            className="icon-button"
+            type="button"
+            onClick={onCancel}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {error ? <div className="form-error">{error}</div> : null}
+
+        <ReviewFormFields
+          labels={labels}
+          values={values}
+          onStatusLabelChange={(statusLabelId) => patchValues({ statusLabelId })}
+          onAttentionSwitchCountChange={(attentionSwitchCount) =>
+            patchValues({ attentionSwitchCount })
+          }
+          onProductLabelIdsChange={(productLabelIds) =>
+            patchValues({ productLabelIds })
+          }
+          onProductNoteChange={(productNote) => patchValues({ productNote })}
+          onBlockerLabelIdsChange={(blockerLabelIds) =>
+            patchValues({ blockerLabelIds })
+          }
+          onBlockerNoteChange={(blockerNote) => patchValues({ blockerNote })}
+        />
+
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onCancel}>
+            取消
+          </button>
+          <button className="primary-button" type="submit">
+            <Save size={18} />
+            保存修改
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -1588,13 +1789,20 @@ function AnalyticsView({
   snapshot,
   now,
   timelineColors,
+  onChanged,
+  onMessage,
 }: {
   snapshot: AppSnapshot;
   now: Date;
   timelineColors: Record<DayTimelineCell["state"], string>;
+  onChanged: () => Promise<void>;
+  onMessage: (message: string) => void;
 }) {
   const [grain, setGrain] = useState<AnalyticsGrain>("day");
   const [detailFilter, setDetailFilter] = useState<DetailFilter>(null);
+  const [editingReviewEntry, setEditingReviewEntry] = useState<
+    AnalyticsSummary["reviewEntries"][number] | null
+  >(null);
   const [analyticsAnchorDate, setAnalyticsAnchorDate] = useState(() =>
     toLocalDate(now),
   );
@@ -1687,13 +1895,11 @@ function AnalyticsView({
                 </button>
               ))}
             </div>
-            {grain !== "day" ? (
-              <AnalyticsRangeControls
-                anchorDate={analyticsAnchorDate}
-                grain={grain}
-                onAnchorDateChange={setAnalyticsAnchorDate}
-              />
-            ) : null}
+            <AnalyticsRangeControls
+              anchorDate={analyticsAnchorDate}
+              grain={grain}
+              onAnchorDateChange={setAnalyticsAnchorDate}
+            />
           </div>
         </div>
 
@@ -1731,6 +1937,7 @@ function AnalyticsView({
           cells={dayTimeline}
           date={timelineDate}
           timeZoneLabel={dayTimelineTimeZoneLabel}
+          showDateControls={false}
           onDateChange={(date) => {
             if (isLocalDateString(date)) {
               setAnalyticsAnchorDate(date);
@@ -1773,31 +1980,35 @@ function AnalyticsView({
         </ResponsiveContainer>
       </section>
 
-      <section className="panel chart-panel">
-        <h3>睡眠与精力</h3>
-        <ResponsiveContainer height={260} width="100%">
-          <LineChart data={summary.trend}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-            <YAxis />
-            <Tooltip />
-            <Line
-              dataKey="sleepDurationHours"
-              name="睡眠小时"
-              stroke="#2b6cb0"
-              strokeWidth={2}
-              type="monotone"
-            />
-            <Line
-              dataKey="energyScore"
-              name="精力"
-              stroke="#805ad5"
-              strokeWidth={2}
-              type="monotone"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </section>
+      {showDailyDetails ? (
+        <DailySleepStatsPanel summary={summary} />
+      ) : (
+        <section className="panel chart-panel">
+          <h3>睡眠与精力</h3>
+          <ResponsiveContainer height={260} width="100%">
+            <LineChart data={summary.trend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <YAxis />
+              <Tooltip />
+              <Line
+                dataKey="sleepDurationHours"
+                name="睡眠小时"
+                stroke="#2b6cb0"
+                strokeWidth={2}
+                type="monotone"
+              />
+              <Line
+                dataKey="energyScore"
+                name="精力"
+                stroke="#805ad5"
+                strokeWidth={2}
+                type="monotone"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </section>
+      )}
 
       <DistributionPanel
         title="状态分布"
@@ -1860,11 +2071,21 @@ function AnalyticsView({
             <ul>
               {filteredReviewEntries.map((entry) => (
                 <li key={entry.id}>
-                  <div className="record-meta">
-                    <span>{entry.local_date}</span>
-                    <strong>{entry.statusLabelName}</strong>
-                    <em>{formatMinutes(entry.focusMinutes)}</em>
-                    <em>{entry.attentionSwitchCount} 次切换</em>
+                  <div className="record-entry-heading">
+                    <div className="record-meta">
+                      <span>{entry.local_date}</span>
+                      <strong>{entry.statusLabelName}</strong>
+                      <em>{formatMinutes(entry.focusMinutes)}</em>
+                      <em>{entry.attentionSwitchCount} 次切换</em>
+                    </div>
+                    <button
+                      className="ghost-button compact-button"
+                      type="button"
+                      onClick={() => setEditingReviewEntry(entry)}
+                    >
+                      <SettingsIcon size={16} />
+                      编辑
+                    </button>
                   </div>
                   <div className="record-tags">
                     <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
@@ -1884,6 +2105,20 @@ function AnalyticsView({
           )}
         </section>
       ) : null}
+
+      {editingReviewEntry ? (
+        <EditReviewModal
+          entry={editingReviewEntry}
+          labels={snapshot.labels}
+          onCancel={() => setEditingReviewEntry(null)}
+          onSubmit={async (input) => {
+            await updateSessionReview(input);
+            await onChanged();
+            setEditingReviewEntry(null);
+            onMessage("复盘记录已更新。");
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1894,34 +2129,48 @@ function AnalyticsRangeControls({
   onAnchorDateChange,
 }: {
   anchorDate: string;
-  grain: Exclude<AnalyticsGrain, "day">;
+  grain: AnalyticsGrain;
   onAnchorDateChange: (date: string) => void;
 }) {
+  const isDay = grain === "day";
   const isWeek = grain === "week";
+  const inputType = grain === "month" ? "month" : "date";
+  const inputLabel = grain === "month" ? "月份" : "日期";
+  const previousLabel = isDay ? "前一天" : isWeek ? "上一周" : "上一月";
+  const nextLabel = isDay ? "后一天" : isWeek ? "下一周" : "下一月";
+  const currentLabel = isDay ? "今天" : isWeek ? "本周" : "本月";
+
+  function shiftAnchor(direction: -1 | 1) {
+    if (isDay) {
+      return shiftLocalDate(anchorDate, direction);
+    }
+
+    if (isWeek) {
+      return shiftLocalDate(anchorDate, direction * 7);
+    }
+
+    return shiftLocalMonth(anchorDate, direction);
+  }
 
   return (
     <div className="analytics-range-controls">
       <button
         className="ghost-button"
         type="button"
-        onClick={() =>
-          onAnchorDateChange(
-            isWeek ? shiftLocalDate(anchorDate, -7) : shiftLocalMonth(anchorDate, -1),
-          )
-        }
+        onClick={() => onAnchorDateChange(shiftAnchor(-1))}
       >
         <ChevronLeft size={16} />
-        {isWeek ? "上一周" : "上一月"}
+        {previousLabel}
       </button>
       <label>
-        {isWeek ? "日期" : "月份"}
+        {inputLabel}
         <input
-          aria-label={isWeek ? "统计日期" : "统计月份"}
-          type={isWeek ? "date" : "month"}
-          value={isWeek ? anchorDate : anchorDate.slice(0, 7)}
+          aria-label={grain === "month" ? "统计月份" : "统计日期"}
+          type={inputType}
+          value={grain === "month" ? anchorDate.slice(0, 7) : anchorDate}
           onChange={(event) => {
             const nextValue = event.currentTarget.value;
-            const nextDate = isWeek ? nextValue : `${nextValue}-01`;
+            const nextDate = grain === "month" ? `${nextValue}-01` : nextValue;
 
             if (isLocalDateString(nextDate)) {
               onAnchorDateChange(nextDate);
@@ -1932,13 +2181,9 @@ function AnalyticsRangeControls({
       <button
         className="ghost-button"
         type="button"
-        onClick={() =>
-          onAnchorDateChange(
-            isWeek ? shiftLocalDate(anchorDate, 7) : shiftLocalMonth(anchorDate, 1),
-          )
-        }
+        onClick={() => onAnchorDateChange(shiftAnchor(1))}
       >
-        {isWeek ? "下一周" : "下一月"}
+        {nextLabel}
         <ChevronRight size={16} />
       </button>
       <button
@@ -1946,9 +2191,35 @@ function AnalyticsRangeControls({
         type="button"
         onClick={() => onAnchorDateChange(toLocalDate())}
       >
-        {isWeek ? "本周" : "本月"}
+        {currentLabel}
       </button>
     </div>
+  );
+}
+
+function DailySleepStatsPanel({ summary }: { summary: AnalyticsSummary }) {
+  return (
+    <section className="panel daily-sleep-panel">
+      <h3>睡眠</h3>
+      <div className="daily-sleep-grid">
+        <StatCard
+          label="睡眠时长"
+          value={
+            summary.averageSleepDurationMinutes === null
+              ? "暂无"
+              : formatMinutes(summary.averageSleepDurationMinutes)
+          }
+        />
+        <StatCard
+          label="精力"
+          value={
+            summary.averageEnergyScore === null
+              ? "暂无"
+              : `${summary.averageEnergyScore.toFixed(1)} / 5`
+          }
+        />
+      </div>
+    </section>
   );
 }
 
@@ -2068,6 +2339,7 @@ function DayTimelinePanel({
   cells,
   date,
   timeZoneLabel,
+  showDateControls = true,
   onDateChange,
   onNextDate,
   onPreviousDate,
@@ -2076,6 +2348,7 @@ function DayTimelinePanel({
   cells: DayTimelineCell[];
   date: string;
   timeZoneLabel: string | null;
+  showDateControls?: boolean;
   onDateChange: (date: string | null) => void;
   onNextDate: () => void;
   onPreviousDate: () => void;
@@ -2100,31 +2373,33 @@ function DayTimelinePanel({
           </p>
         </div>
         <div className="timeline-actions">
-          <div className="timeline-controls" aria-label="点阵日期控制">
-            <button className="ghost-button" type="button" onClick={onPreviousDate}>
-              <ChevronLeft size={16} />
-              前一天
-            </button>
-            <label>
-              日期
-              <input
-                aria-label="点阵日期"
-                type="date"
-                value={date}
-                onChange={(event) => {
-                  const nextDate = event.currentTarget.value;
-                  onDateChange(nextDate || null);
-                }}
-              />
-            </label>
-            <button className="ghost-button" type="button" onClick={onNextDate}>
-              后一天
-              <ChevronRight size={16} />
-            </button>
-            <button className="secondary-button" type="button" onClick={onToday}>
-              今天
-            </button>
-          </div>
+          {showDateControls ? (
+            <div className="timeline-controls" aria-label="点阵日期控制">
+              <button className="ghost-button" type="button" onClick={onPreviousDate}>
+                <ChevronLeft size={16} />
+                前一天
+              </button>
+              <label>
+                日期
+                <input
+                  aria-label="点阵日期"
+                  type="date"
+                  value={date}
+                  onChange={(event) => {
+                    const nextDate = event.currentTarget.value;
+                    onDateChange(nextDate || null);
+                  }}
+                />
+              </label>
+              <button className="ghost-button" type="button" onClick={onNextDate}>
+                后一天
+                <ChevronRight size={16} />
+              </button>
+              <button className="secondary-button" type="button" onClick={onToday}>
+                今天
+              </button>
+            </div>
+          ) : null}
           <TimelineLegend durationMsByState={durationMsByState} />
         </div>
       </div>
@@ -2773,62 +3048,6 @@ function LabelSettingsDialog({
         </div>
       </form>
     </div>
-  );
-}
-
-function RecentSessions({ snapshot }: { snapshot: AppSnapshot }) {
-  const reviewsByFocusId = new Map(
-    snapshot.sessionReviews
-      .filter((review) => !review.deleted_at)
-      .map((review) => [review.focus_session_id, review]),
-  );
-  const entries = snapshot.focusSessions
-    .filter((session) => session.state === "reviewed")
-    .sort(
-      (a, b) =>
-        new Date(b.completed_at ?? b.started_at).getTime() -
-        new Date(a.completed_at ?? a.started_at).getTime(),
-    )
-    .map((session) => {
-      const review = reviewsByFocusId.get(session.id);
-
-      return {
-        session,
-        review,
-        statusLabelName: review
-          ? labelNameById(snapshot.labels, review.status_label_id)
-          : "未复盘",
-      };
-    });
-  const recent = entries.slice(0, 5);
-
-  return (
-    <section className="panel recent-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>最近记录</h2>
-          <p>最近完成复盘的专注轮次。</p>
-        </div>
-        <RotateCcw size={22} />
-      </div>
-      {recent.length > 0 ? (
-        <ul className="recent-list">
-          {recent.map((entry) => {
-            const { review, session } = entry;
-            return (
-              <li key={session.id}>
-                <span>{session.local_date}</span>
-                <strong>{formatMinutes(session.actual_duration_minutes ?? 0)}</strong>
-                <em>{entry.statusLabelName}</em>
-                <p>{review?.product_note || "没有产物文字"}</p>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="empty-text">完成第一轮复盘后，这里会显示记录。</p>
-      )}
-    </section>
   );
 }
 
