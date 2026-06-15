@@ -60,7 +60,7 @@
 派生字段：
 
 - `startup_delay_minutes` 不必作为源字段保存；界面显示为“拖延”。
-- 计算方式：同一 arrival session 下第一条 focus session 的 `started_at - arrived_at`。
+- 计算方式：从 canonical timeline 派生。到岗区间先作为拖延底色，再用休息、有效专注片段和已复盘不专注片段覆盖；剩余等待时间就是拖延。兼容层仍可保留“到岗到第一轮开始”的诊断工具，但它不是 Today/Analytics 的统计来源。
 
 ## focus_sessions
 
@@ -92,6 +92,7 @@
 - 真实专注发生在哪些时间段不只靠 `started_at + actual_duration_minutes` 推断，优先读取 `focus_segments`。
 - Today 页面“手动记录”也写入本表：它直接创建 `reviewed` 记录，`planned_duration_minutes` 和 `actual_duration_minutes` 等于用户输入的持续分钟，`arrival_session_id` 可以为空，且不会修改到岗记录。
 - 手动记录的 `actual_duration_minutes` 和普通番茄钟一样参与当天休息余额动态累计。
+- 手动记录不能和已有有效专注区间重叠。重叠判断优先读取 `focus_segments`，并用 `actual_duration_minutes`/计划时长封顶，不直接把 `completed_at - started_at` 的整段墙钟时间当作专注。
 
 ## focus_segments
 

@@ -12,6 +12,10 @@ import {
   calculateNewlyEarnedBreakMinutes,
   calculateUsedBreakMinutes,
 } from "../domain/break-bank";
+import {
+  getEffectiveFocusOverlapRanges,
+  hasFocusOverlap,
+} from "../domain/focus-overlap";
 import { calculateCompletedFocusMinutes } from "../domain/focus-session";
 import { createId } from "../domain/id";
 import {
@@ -1103,6 +1107,15 @@ async function ensureManualFocusDoesNotOverlap(
   const startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
   const focusSessions = await db.focus_sessions.toArray();
+  const focusSegments = await db.focus_segments.toArray();
+  const focusSegmentsBySessionId = new Map<Id, typeof focusSegments>();
+
+  focusSegments.forEach((segment) => {
+    const segments = focusSegmentsBySessionId.get(segment.focus_session_id) ?? [];
+    segments.push(segment);
+    focusSegmentsBySessionId.set(segment.focus_session_id, segments);
+  });
+
   const hasOverlap = focusSessions
     .filter(
       (session) =>
@@ -1111,41 +1124,16 @@ async function ensureManualFocusDoesNotOverlap(
         (session.state === "completed" || session.state === "reviewed"),
     )
     .some((session) => {
-      const range = getStoredFocusSessionRange(session);
-      return range ? startMs < range.endMs && endMs > range.startMs : false;
+      const ranges = getEffectiveFocusOverlapRanges(
+        session,
+        focusSegmentsBySessionId.get(session.id) ?? [],
+      );
+      return hasFocusOverlap(startMs, endMs, ranges);
     });
 
   if (hasOverlap) {
     throw new Error("手动记录时间段不能和已有专注记录重叠。");
   }
-}
-
-function getStoredFocusSessionRange(
-  session: FocusSessionRecord,
-): { startMs: number; endMs: number } | null {
-  const startMs = new Date(session.started_at).getTime();
-  if (!Number.isFinite(startMs)) {
-    return null;
-  }
-
-  const endIso =
-    session.completed_at ??
-    (typeof session.actual_duration_minutes === "number"
-      ? new Date(
-          startMs + Math.max(0, Math.round(session.actual_duration_minutes)) * 60_000,
-        ).toISOString()
-      : undefined);
-
-  if (!endIso) {
-    return null;
-  }
-
-  const endMs = new Date(endIso).getTime();
-  if (!Number.isFinite(endMs) || endMs <= startMs) {
-    return null;
-  }
-
-  return { startMs, endMs };
 }
 
 async function closeOpenArrivals(

@@ -29,7 +29,7 @@ This repository is for Status Record, a personal study/work tracking tool with a
 2. Record data with as little manual friction as possible.
 3. Keep all labels extensible, especially session status, visible product, and not-focused reason labels. The internal label type remains `blocker`.
 4. Preserve reliable objective signals where possible:
-   - Focus duration comes from completed timer sessions.
+   - Focus duration comes from completed timer sessions and manual records.
    - Procrastination is derived from the canonical timeline: arrival time not covered by focus, break, or not-focused reviewed time.
    - Break balance is derived from completed focus minutes.
 5. Keep the data model portable so the first web app can later become a Mac, iOS, or iPad app.

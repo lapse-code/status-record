@@ -90,7 +90,7 @@ stateDiagram-v2
 - 历史日点阵和周点阵按记录发生时区把 UTC 区间映射回本地分钟，不按用户当前设备时区重新解释，避免旅行后历史时间线漂移。
 - Today 页的新记录会跟随当前设备时区；如果同一日期内出现多个记录时区，点阵标题显示“多时区”提示。
 - duration 类字段统一用分钟或秒，字段名必须明确，例如 `duration_minutes`。
-- 拖延是派生值，内部字段仍可称 `startup_delay`；可存缓存，但必须能从 `arrival_sessions.arrived_at` 和 `focus_sessions.started_at` 重新计算。
+- 拖延是派生值，内部字段仍可称 `startup_delay`；可存缓存，但必须能从源时间线重新计算：到岗区间先作为拖延底色，再用休息、有效专注片段和已复盘不专注片段覆盖。不能只用 `arrival_sessions.arrived_at` 和第一条 `focus_sessions.started_at` 计算。
 
 ## 本地优先原则
 
