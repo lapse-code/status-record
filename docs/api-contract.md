@@ -379,8 +379,9 @@ interface AnalyticsSummary {
 
 规则：
 
-- `totalFocusMinutes`、`totalBlockedMinutes`、`totalStartupDelayMinutes` 以及 trend 中的 `focusMinutes`、`blockedMinutes`、`startupDelayMinutes` 必须从 `buildDayTimeline` 的真实状态时长汇总得到，不按主色点数量统计。
-- UI 中 `startup_delay` 显示为“拖延”，`blocked` 显示为“不专注”，并且必须等于点阵对应颜色的真实时长总和。
+- `totalFocusMinutes`、`totalBlockedMinutes`、`totalStartupDelayMinutes` 以及 trend 中的 `focusMinutes`、`blockedMinutes`、`startupDelayMinutes` 必须使用和 `buildDayTimeline` 相同的时间覆盖规则计算真实状态时长，不按主色点数量统计。
+- 日视图可以从日点阵 `durationMsByState` 校验这些时长；周/月视图应使用轻量区间汇总，不为了聚合统计生成范围内每天的完整 288 cell 点阵。
+- UI 中 `startup_delay` 显示为“拖延”，`blocked` 显示为“不专注”。日视图中统计值必须等于点阵对应颜色的真实时长总和；周/月视图必须与同一套覆盖规则的区间汇总一致。
 - 统计页“时间占比”使用方案 A：专注 + 不专注 + 拖延 = 100%，休息 `break` 不进入分母。
 - 注意力切换、状态分布和标签分布基于已完成并已复盘的 focus sessions。
 - 统计日期使用记录保存的 `local_date`；不要用当前设备时区重新计算历史记录日期。

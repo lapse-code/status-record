@@ -264,19 +264,22 @@ export default function App() {
     [currentLocalDate, snapshot.breakBankTransactions, snapshot.focusSessions],
   );
   const breakBalance = breakLedger.balanceMinutes;
+  const todayViewNow = activeTab === "today" ? now : null;
   const todaySummary = useMemo(
     () =>
-      buildAnalyticsSummary(
-        snapshot,
-        getAnalyticsRange("day", now),
-        now,
-      ),
-    [now, snapshot],
+      todayViewNow
+        ? buildAnalyticsSummary(
+          snapshot,
+          getAnalyticsRange("day", todayViewNow),
+          todayViewNow,
+        )
+        : null,
+    [snapshot, todayViewNow],
   );
   const [todayTimelineDate, setTodayTimelineDate] = useState(toLocalDate());
   const todayTimeline = useMemo(
-    () => buildDayTimeline(snapshot, todayTimelineDate, now),
-    [now, snapshot, todayTimelineDate],
+    () => (todayViewNow ? buildDayTimeline(snapshot, todayTimelineDate, todayViewNow) : []),
+    [snapshot, todayTimelineDate, todayViewNow],
   );
   const todayTimelineTimeZoneLabel = useMemo(
     () => getTimelineTimeZoneLabel(snapshot, todayTimelineDate),
@@ -779,15 +782,15 @@ export default function App() {
               <section className="summary-strip">
                 <StatCard
                   label="今日专注"
-                  value={formatMinutes(todaySummary.totalFocusMinutes)}
+                  value={formatMinutes(todaySummary?.totalFocusMinutes ?? 0)}
                 />
                 <StatCard
                   label="今日拖延"
-                  value={formatMinutes(todaySummary.totalStartupDelayMinutes)}
+                  value={formatMinutes(todaySummary?.totalStartupDelayMinutes ?? 0)}
                 />
                 <StatCard
                   label="注意力切换"
-                  value={`${todaySummary.totalAttentionSwitchCount} 次`}
+                  value={`${todaySummary?.totalAttentionSwitchCount ?? 0} 次`}
                 />
                 <StatCard label="休息余额" value={formatMinutes(breakBalance)} />
               </section>
@@ -1810,15 +1813,25 @@ function AnalyticsView({
     () => getAnalyticsRange(grain, localDateToDate(analyticsAnchorDate)),
     [analyticsAnchorDate, grain],
   );
-  const summary = useMemo<AnalyticsSummary>(
-    () => buildAnalyticsSummary(snapshot, analyticsRange, now),
-    [analyticsRange, now, snapshot],
+  const nowMinuteKey = Math.floor(now.getTime() / 60_000);
+  const rangeNowByMinute = useMemo(
+    () => new Date(nowMinuteKey * 60_000),
+    [nowMinuteKey],
   );
   const showDailyDetails = grain === "day";
+  const summaryNow = showDailyDetails ? now : rangeNowByMinute;
+  const summary = useMemo<AnalyticsSummary>(
+    () => buildAnalyticsSummary(snapshot, analyticsRange, summaryNow),
+    [analyticsRange, snapshot, summaryNow],
+  );
   const timelineDate = summary.range.startDate;
+  const dailyDetailNow = showDailyDetails ? now : null;
   const dayTimeline = useMemo(
-    () => (showDailyDetails ? buildDayTimeline(snapshot, timelineDate, now) : []),
-    [now, showDailyDetails, snapshot, timelineDate],
+    () =>
+      dailyDetailNow
+        ? buildDayTimeline(snapshot, timelineDate, dailyDetailNow)
+        : [],
+    [dailyDetailNow, snapshot, timelineDate],
   );
   const dayTimelineTimeZoneLabel = useMemo(
     () =>

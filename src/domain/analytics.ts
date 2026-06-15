@@ -58,6 +58,18 @@ type TimelineStateRange = {
 };
 
 type TimelineDurationMap = Record<DayTimelineCellState, number>;
+type TimelineSegmentMarker = (
+  startIso: string,
+  endIso: string,
+  state: Exclude<DayTimelineCellState, "empty">,
+  timeZone: string | undefined,
+  options?: { isLive?: boolean },
+) => void;
+type AnalyticsIndex = {
+  focusSegmentsByFocusId: Map<Id, AppSnapshot["focusSegments"]>;
+  reviewByFocusId: Map<Id, SessionReviewRecord>;
+  sleepByDate: Map<LocalDate, AppSnapshot["sleepLogs"][number]>;
+};
 
 function createTimelineDurationMap(): TimelineDurationMap {
   return {
@@ -98,6 +110,7 @@ export function buildAnalyticsSummary(
   range: AnalyticsRange,
   now: Date = new Date(),
 ): AnalyticsSummary {
+  const index = createAnalyticsIndex(snapshot);
   const reviewedFocusSessions = snapshot.focusSessions.filter(
     (session) =>
       session.state === "reviewed" &&
@@ -121,7 +134,7 @@ export function buildAnalyticsSummary(
   const sleepLogs = snapshot.sleepLogs.filter(
     (sleep) => !sleep.deleted_at && isDateInRange(sleep.local_date, range),
   );
-  const trend = buildTrend(range, reviewedFocusSessions, reviews, snapshot, now);
+  const trend = buildTrend(range, reviewedFocusSessions, reviews, snapshot, index, now);
 
   const totalFocusMinutes = trend.reduce(
     (sum, day) => sum + day.focusMinutes,
@@ -197,6 +210,7 @@ export function buildDayTimeline(
   snapshot: AppSnapshot,
   localDate: LocalDate,
   now: Date = new Date(),
+  index = createAnalyticsIndex(snapshot),
 ): DayTimelineCell[] {
   const cellStateRanges: Array<TimelineStateRange[] | undefined> = Array.from({
     length: dayTimelineCellCount,
@@ -223,124 +237,22 @@ export function buildDayTimeline(
     };
   });
 
-  const timelineFocusSessions = snapshot.focusSessions.filter(
-    (session) =>
-      session.state !== "canceled" &&
-      !session.deleted_at,
-  );
-  const timelineFocusIds = new Set(timelineFocusSessions.map((session) => session.id));
-  const reviews = snapshot.sessionReviews.filter(
-    (review) => timelineFocusIds.has(review.focus_session_id) && !review.deleted_at,
-  );
-  const reviewByFocusId = new Map(
-    reviews.map((review) => [review.focus_session_id, review]),
-  );
-
-  snapshot.arrivalSessions
-    .filter((arrival) => !arrival.deleted_at)
-    .forEach((arrival) => {
-      markTimelineSegment(
-        cellStateRanges,
-        liveCellEndMs,
-        localDate,
-        arrival.arrived_at,
-        arrival.left_at ?? now.toISOString(),
-        "startup_delay",
-        arrival.time_zone,
-        { isLive: !arrival.left_at },
-      );
-    });
-
-  snapshot.breakSessions
-    .filter(
-      (session) =>
-        session.state !== "canceled",
-    )
-    .forEach((session) => {
-      const start = new Date(session.started_at);
-      const { end, isLive } = getTimelineBreakDisplay(session, start, now);
-
-      markTimelineSegment(
-        cellStateRanges,
-        liveCellEndMs,
-        localDate,
-        session.started_at,
-        end,
-        "break",
-        session.time_zone,
-        { isLive },
-      );
-    });
-
-  timelineFocusSessions.forEach((session) => {
-    const review = reviewByFocusId.get(session.id);
-    const state =
-      session.state === "reviewed" &&
-      isNonFocusReview(review)
-        ? "blocked"
-        : "focus";
-    const segments = snapshot.focusSegments
-      .filter(
-        (segment) =>
-          segment.focus_session_id === session.id &&
-          segment.state !== "canceled" &&
-          !segment.deleted_at,
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
-      );
-
-    if (segments.length > 0) {
-      let remainingFocusBudgetMs = getPlannedFocusBudgetMs(session);
-
-      segments.forEach((segment) => {
-        const end = getTimelineFocusSegmentEnd(segment, now);
-        if (!end || remainingFocusBudgetMs <= 0) {
-          return;
-        }
-
-        const startMs = new Date(segment.started_at).getTime();
-        const endMs = new Date(end).getTime();
-        const cappedEndMs = Math.min(endMs, startMs + remainingFocusBudgetMs);
-        if (cappedEndMs <= startMs) {
-          return;
-        }
-
-        remainingFocusBudgetMs -= cappedEndMs - startMs;
-
-        const isLiveSegment =
-          segment.state === "running" && cappedEndMs === now.getTime();
-
-        markTimelineSegment(
-          cellStateRanges,
-          liveCellEndMs,
-          localDate,
-          segment.started_at,
-          new Date(cappedEndMs).toISOString(),
-          state,
-          segment.time_zone ?? session.time_zone,
-          { isLive: isLiveSegment },
-        );
-      });
-      return;
-    }
-
-    const start = new Date(session.started_at);
-    const end = getTimelineFocusFallbackEnd(session, start, now);
-    if (!end) {
-      return;
-    }
-
+  visitTimelineSegments(snapshot, index, now, (
+    startIso,
+    endIso,
+    state,
+    timeZone,
+    options,
+  ) => {
     markTimelineSegment(
       cellStateRanges,
       liveCellEndMs,
       localDate,
-      session.started_at,
-      end,
+      startIso,
+      endIso,
       state,
-      session.time_zone,
-      { isLive: session.state === "running" && end === now.toISOString() },
+      timeZone,
+      options,
     );
   });
 
@@ -354,6 +266,7 @@ function buildTrend(
   focusSessions: FocusSessionRecord[],
   reviews: SessionReviewRecord[],
   snapshot: AppSnapshot,
+  index: AnalyticsIndex,
   now: Date,
 ): AnalyticsSummary["trend"] {
   const days = eachDayOfInterval({
@@ -368,11 +281,13 @@ function buildTrend(
     const dayFocusSessions = focusSessions.filter(
       (session) => session.local_date === date,
     );
-    const dayTimeline = buildDayTimeline(snapshot, date, now);
-    const durationMsByState = sumTimelineCellDurations(dayTimeline);
-    const daySleep = snapshot.sleepLogs.find(
-      (sleep) => sleep.local_date === date && !sleep.deleted_at,
+    const durationMsByState = buildDayTimelineDurationMap(
+      snapshot,
+      index,
+      date,
+      now,
     );
+    const daySleep = index.sleepByDate.get(date);
 
     return {
       date,
@@ -390,6 +305,154 @@ function buildTrend(
       energyScore: daySleep?.energy_score,
     };
   });
+}
+
+function createAnalyticsIndex(snapshot: AppSnapshot): AnalyticsIndex {
+  const focusSegmentsByFocusId = new Map<Id, AppSnapshot["focusSegments"]>();
+  snapshot.focusSegments.forEach((segment) => {
+    const segments = focusSegmentsByFocusId.get(segment.focus_session_id) ?? [];
+    segments.push(segment);
+    focusSegmentsByFocusId.set(segment.focus_session_id, segments);
+  });
+
+  focusSegmentsByFocusId.forEach((segments) => {
+    segments.sort(
+      (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
+    );
+  });
+
+  const reviewByFocusId = new Map(
+    snapshot.sessionReviews
+      .filter((review) => !review.deleted_at)
+      .map((review) => [review.focus_session_id, review]),
+  );
+  const sleepByDate = new Map<LocalDate, AppSnapshot["sleepLogs"][number]>();
+  snapshot.sleepLogs.forEach((sleep) => {
+    if (!sleep.deleted_at) {
+      sleepByDate.set(sleep.local_date, sleep);
+    }
+  });
+
+  return {
+    focusSegmentsByFocusId,
+    reviewByFocusId,
+    sleepByDate,
+  };
+}
+
+function buildDayTimelineDurationMap(
+  snapshot: AppSnapshot,
+  index: AnalyticsIndex,
+  localDate: LocalDate,
+  now: Date,
+): TimelineDurationMap {
+  let ranges: TimelineStateRange[] = [
+    { startMs: 0, endMs: dayTimelineMs, state: "empty" },
+  ];
+
+  visitTimelineSegments(snapshot, index, now, (
+    startIso,
+    endIso,
+    state,
+    timeZone,
+  ) => {
+    ranges = markTimelineDurationSegment(
+      ranges,
+      localDate,
+      startIso,
+      endIso,
+      state,
+      timeZone,
+    );
+  });
+
+  return sumTimelineRanges(ranges);
+}
+
+function visitTimelineSegments(
+  snapshot: AppSnapshot,
+  index: AnalyticsIndex,
+  now: Date,
+  mark: TimelineSegmentMarker,
+) {
+  snapshot.arrivalSessions
+    .filter((arrival) => !arrival.deleted_at)
+    .forEach((arrival) => {
+      mark(
+        arrival.arrived_at,
+        arrival.left_at ?? now.toISOString(),
+        "startup_delay",
+        arrival.time_zone,
+        { isLive: !arrival.left_at },
+      );
+    });
+
+  snapshot.breakSessions
+    .filter((session) => session.state !== "canceled")
+    .forEach((session) => {
+      const start = new Date(session.started_at);
+      const { end, isLive } = getTimelineBreakDisplay(session, start, now);
+
+      mark(session.started_at, end, "break", session.time_zone, { isLive });
+    });
+
+  snapshot.focusSessions
+    .filter((session) => session.state !== "canceled" && !session.deleted_at)
+    .forEach((session) => {
+      const review = index.reviewByFocusId.get(session.id);
+      const state =
+        session.state === "reviewed" && isNonFocusReview(review)
+          ? "blocked"
+          : "focus";
+      const segments = (index.focusSegmentsByFocusId.get(session.id) ?? [])
+        .filter((segment) => segment.state !== "canceled" && !segment.deleted_at);
+
+      if (segments.length > 0) {
+        let remainingFocusBudgetMs = getPlannedFocusBudgetMs(session);
+
+        segments.forEach((segment) => {
+          const end = getTimelineFocusSegmentEnd(segment, now);
+          if (!end || remainingFocusBudgetMs <= 0) {
+            return;
+          }
+
+          const startMs = new Date(segment.started_at).getTime();
+          const endMs = new Date(end).getTime();
+          const cappedEndMs = Math.min(endMs, startMs + remainingFocusBudgetMs);
+          if (cappedEndMs <= startMs) {
+            return;
+          }
+
+          remainingFocusBudgetMs -= cappedEndMs - startMs;
+
+          const isLiveSegment =
+            segment.state === "running" && cappedEndMs === now.getTime();
+
+          mark(
+            segment.started_at,
+            new Date(cappedEndMs).toISOString(),
+            state,
+            segment.time_zone ?? session.time_zone,
+            { isLive: isLiveSegment },
+          );
+        });
+        return;
+      }
+
+      const start = new Date(session.started_at);
+      const end = getTimelineFocusFallbackEnd(session, start, now);
+      if (!end) {
+        return;
+      }
+
+      mark(
+        session.started_at,
+        end,
+        state,
+        session.time_zone,
+        { isLive: session.state === "running" && end === now.toISOString() },
+      );
+    });
 }
 
 function buildReviewEntries(
@@ -460,27 +523,12 @@ function markTimelineSegment(
   timeZone = normalizeTimeZone(),
   options: { isLive?: boolean } = {},
 ) {
-  const zone = normalizeTimeZone(timeZone);
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  const dayStartMs = getLocalDateStartUtcMs(localDate, zone);
-  const dayEndMs = getLocalDateEndUtcMs(localDate, zone);
-  const startMs = Math.max(start.getTime(), dayStartMs);
-  const endMs = Math.min(end.getTime(), dayEndMs);
-
-  if (endMs <= startMs) {
+  const offsets = getTimelineSegmentOffsets(localDate, startIso, endIso, timeZone);
+  if (!offsets) {
     return;
   }
 
-  const startOffsetMs =
-    startMs <= dayStartMs ? 0 : getLocalMillisecondOfDay(new Date(startMs), zone);
-  const endOffsetMs =
-    endMs >= dayEndMs ? dayTimelineMs : getLocalMillisecondOfDay(new Date(endMs), zone);
-  if (endOffsetMs <= startOffsetMs) {
-    return;
-  }
-
-  getTimelineCellOverlaps(startOffsetMs, endOffsetMs).forEach((overlap) => {
+  getTimelineCellOverlaps(offsets.startOffsetMs, offsets.endOffsetMs).forEach((overlap) => {
     overlayTimelineCellRange(
       cellStateRanges,
       overlap.cellIndex,
@@ -496,6 +544,56 @@ function markTimelineSegment(
       );
     }
   });
+}
+
+function markTimelineDurationSegment(
+  ranges: TimelineStateRange[],
+  localDate: LocalDate,
+  startIso: string,
+  endIso: string,
+  state: Exclude<DayTimelineCellState, "empty">,
+  timeZone = normalizeTimeZone(),
+): TimelineStateRange[] {
+  const offsets = getTimelineSegmentOffsets(localDate, startIso, endIso, timeZone);
+  if (!offsets) {
+    return ranges;
+  }
+
+  return overlayTimelineRange(
+    ranges,
+    offsets.startOffsetMs,
+    offsets.endOffsetMs,
+    state,
+  );
+}
+
+function getTimelineSegmentOffsets(
+  localDate: LocalDate,
+  startIso: string,
+  endIso: string,
+  timeZone = normalizeTimeZone(),
+): { startOffsetMs: number; endOffsetMs: number } | null {
+  const zone = normalizeTimeZone(timeZone);
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const dayStartMs = getLocalDateStartUtcMs(localDate, zone);
+  const dayEndMs = getLocalDateEndUtcMs(localDate, zone);
+  const startMs = Math.max(start.getTime(), dayStartMs);
+  const endMs = Math.min(end.getTime(), dayEndMs);
+
+  if (endMs <= startMs) {
+    return null;
+  }
+
+  const startOffsetMs =
+    startMs <= dayStartMs ? 0 : getLocalMillisecondOfDay(new Date(startMs), zone);
+  const endOffsetMs =
+    endMs >= dayEndMs ? dayTimelineMs : getLocalMillisecondOfDay(new Date(endMs), zone);
+  if (endOffsetMs <= startOffsetMs) {
+    return null;
+  }
+
+  return { startOffsetMs, endOffsetMs };
 }
 
 function getTimelineBreakDisplay(
@@ -701,6 +799,13 @@ export function sumTimelineCellDurations(
   }, createTimelineDurationMap());
 }
 
+function sumTimelineRanges(ranges: TimelineStateRange[]): TimelineDurationMap {
+  return ranges.reduce<TimelineDurationMap>((result, range) => {
+    result[range.state] += Math.max(0, range.endMs - range.startMs);
+    return result;
+  }, createTimelineDurationMap());
+}
+
 function minutesFromTimelineDuration(durationMs: number): number {
   return Math.round(durationMs / 60_000);
 }
@@ -802,6 +907,43 @@ function overlayTimelineCellRange(
   });
 
   cellStateRanges[cellIndex] = mergeAdjacentTimelineRanges(nextRanges);
+}
+
+function overlayTimelineRange(
+  ranges: TimelineStateRange[],
+  startMs: number,
+  endMs: number,
+  state: Exclude<DayTimelineCellState, "empty">,
+): TimelineStateRange[] {
+  const nextRanges: TimelineStateRange[] = [];
+
+  ranges.forEach((range) => {
+    if (range.endMs <= startMs || range.startMs >= endMs) {
+      nextRanges.push(range);
+      return;
+    }
+
+    if (shouldKeepTimelineState(range.state, state)) {
+      nextRanges.push(range);
+      return;
+    }
+
+    if (range.startMs < startMs) {
+      nextRanges.push({ ...range, endMs: startMs });
+    }
+
+    nextRanges.push({
+      startMs: Math.max(range.startMs, startMs),
+      endMs: Math.min(range.endMs, endMs),
+      state,
+    });
+
+    if (range.endMs > endMs) {
+      nextRanges.push({ ...range, startMs: endMs });
+    }
+  });
+
+  return mergeAdjacentTimelineRanges(nextRanges);
 }
 
 function mergeAdjacentTimelineRanges(ranges: TimelineStateRange[]) {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildAnalyticsSummary, buildDayTimeline } from "./analytics";
+import {
+  buildAnalyticsSummary,
+  buildDayTimeline,
+  sumTimelineCellDurations,
+} from "./analytics";
 import type { AppSnapshot } from "../types";
 
 const baseSnapshot: AppSnapshot = {
@@ -191,6 +195,96 @@ describe("analytics summary", () => {
 
     expect(summary.totalStartupDelayMinutes).toBe(45);
     expect(summary.trend[0]?.startupDelayMinutes).toBe(45);
+  });
+
+  it("keeps range summary durations aligned with daily timeline durations", () => {
+    const snapshot: AppSnapshot = {
+      ...baseSnapshot,
+      arrivalSessions: [
+        {
+          id: "arrival-mixed-summary",
+          local_date: "2026-06-11",
+          arrived_at: localIso(0, 0),
+          left_at: localIso(0, 40),
+          created_at: localIso(0, 0),
+          updated_at: localIso(0, 40),
+        },
+      ],
+      focusSessions: [
+        {
+          id: "focus-mixed-summary",
+          arrival_session_id: "arrival-mixed-summary",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 10,
+          actual_duration_minutes: 10,
+          started_at: localIso(0, 10),
+          paused_total_seconds: 0,
+          completed_at: localIso(0, 20),
+          state: "reviewed",
+          earned_break_minutes: 0,
+          created_at: localIso(0, 10),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      focusSegments: [
+        {
+          id: "focus-segment-mixed-summary",
+          focus_session_id: "focus-mixed-summary",
+          local_date: "2026-06-11",
+          started_at: localIso(0, 10),
+          ended_at: localIso(0, 20),
+          state: "completed",
+          created_at: localIso(0, 10),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      sessionReviews: [
+        {
+          id: "review-mixed-summary",
+          focus_session_id: "focus-mixed-summary",
+          status_label_id: "status-interrupted",
+          attention_switch_count: 3,
+          created_at: localIso(0, 20),
+          updated_at: localIso(0, 20),
+        },
+      ],
+      sessionReviewLabels: [],
+      breakSessions: [
+        {
+          id: "break-mixed-summary",
+          local_date: "2026-06-11",
+          planned_duration_minutes: 5,
+          actual_duration_minutes: 5,
+          started_at: localIso(0, 5),
+          completed_at: localIso(0, 10),
+          state: "completed",
+          created_at: localIso(0, 5),
+          updated_at: localIso(0, 10),
+        },
+      ],
+      sleepLogs: [],
+    };
+    const timelineDurations = sumTimelineCellDurations(
+      buildDayTimeline(snapshot, "2026-06-11"),
+    );
+    const summary = buildAnalyticsSummary(snapshot, {
+      startDate: "2026-06-11",
+      endDate: "2026-06-11",
+      grain: "day",
+    });
+
+    expect(summary.totalStartupDelayMinutes).toBe(
+      Math.round(timelineDurations.startup_delay / 60_000),
+    );
+    expect(summary.totalBlockedMinutes).toBe(
+      Math.round(timelineDurations.blocked / 60_000),
+    );
+    expect(summary.totalFocusMinutes).toBe(
+      Math.round(timelineDurations.focus / 60_000),
+    );
+    expect(summary.totalStartupDelayMinutes).toBe(25);
+    expect(summary.totalBlockedMinutes).toBe(10);
+    expect(summary.totalFocusMinutes).toBe(0);
   });
 
   it("builds five-minute daily timeline cells", () => {
