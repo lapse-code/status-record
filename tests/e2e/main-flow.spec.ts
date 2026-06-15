@@ -102,7 +102,6 @@ const pendingReviewBreakFixture = {
         id: "break-arrival-1",
         local_date: "2026-06-12",
         arrived_at: "2026-06-12T00:00:00.000Z",
-        left_at: "2026-06-12T00:30:00.000Z",
         created_at: "2026-06-12T00:00:00.000Z",
         updated_at: "2026-06-12T00:30:00.000Z",
       },
@@ -356,10 +355,32 @@ test("records a completed focus session review", async ({ page }) => {
   await page.getByLabel("注意力切换次数").fill("2");
   await page.getByRole("button", { name: "笔记" }).click();
   await page.getByPlaceholder("这轮实际产出了什么？").fill("完成了第一条测试记录");
+  const beforeArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const beforeOpenArrivals = beforeArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(beforeOpenArrivals).toHaveLength(1);
+
   await page.getByRole("button", { name: "保存复盘" }).click();
 
-  await expect(page.getByText("复盘已保存，已开始记录下一轮拖延。")).toBeVisible();
+  await expect(page.getByText("复盘已保存，请选择下一轮番茄钟继续。")).toBeVisible();
   await expect(page.getByText("今日专注")).toBeVisible();
+
+  const afterArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const afterOpenArrivals = afterArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(afterOpenArrivals).toHaveLength(1);
+  expect(afterOpenArrivals[0]).toMatchObject({
+    id: beforeOpenArrivals[0]?.id,
+    arrived_at: beforeOpenArrivals[0]?.arrived_at,
+  });
 });
 
 test("auto checks in when starting focus without an open arrival", async ({ page }) => {
@@ -375,7 +396,7 @@ test("auto checks in when starting focus without an open arrival", async ({ page
   await expect(page.getByRole("heading", { name: "本轮复盘" })).toBeVisible();
   await page.getByRole("button", { name: "保存复盘" }).click();
 
-  await expect(page.getByText("复盘已保存，已开始记录下一轮拖延。")).toBeVisible();
+  await expect(page.getByText("复盘已保存，请选择下一轮番茄钟继续。")).toBeVisible();
   await expect(page.getByText("今日拖延")).toBeVisible();
   await expect(page.locator(".stat-card").filter({ hasText: "今日拖延" }).getByText("0 分钟")).toBeVisible();
 });
@@ -486,6 +507,14 @@ test("starts and ends a break timer after review", async ({ page }) => {
   await expect(
     page.getByText("本轮 25 分钟，获得 5 分钟休息。"),
   ).toBeVisible();
+  const beforeBreakArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const beforeBreakOpenArrivals = beforeBreakArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(beforeBreakOpenArrivals).toHaveLength(1);
 
   await page.getByRole("radio", { name: "使用休息" }).check();
   await expect(page.getByLabel("休息倒计时分钟数")).toHaveValue("5");
@@ -494,11 +523,35 @@ test("starts and ends a break timer after review", async ({ page }) => {
   await expect(page.getByText("复盘已保存，休息倒计时已开始。")).toBeVisible();
   await expect(page.locator(".timer-caption")).toHaveText("休息中");
   await expect(page.getByRole("button", { name: "提前结束休息" })).toBeVisible();
+  const duringBreakArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const duringBreakOpenArrivals = duringBreakArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(duringBreakOpenArrivals).toHaveLength(1);
+  expect(duringBreakOpenArrivals[0]).toMatchObject({
+    id: beforeBreakOpenArrivals[0]?.id,
+    arrived_at: beforeBreakOpenArrivals[0]?.arrived_at,
+  });
 
   await page.getByRole("button", { name: "提前结束休息" }).click();
   await expect(page.getByText("已提前结束休息")).toBeVisible();
   await expect(page.getByText("已到岗", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "25 分钟" })).toBeEnabled();
+  const afterBreakArrivalSessions = await readStoreRows<ArrivalSessionRow>(
+    page,
+    "arrival_sessions",
+  );
+  const afterBreakOpenArrivals = afterBreakArrivalSessions.filter(
+    (arrival) => !arrival.left_at,
+  );
+  expect(afterBreakOpenArrivals).toHaveLength(1);
+  expect(afterBreakOpenArrivals[0]).toMatchObject({
+    id: beforeBreakOpenArrivals[0]?.id,
+    arrived_at: beforeBreakOpenArrivals[0]?.arrived_at,
+  });
 });
 
 test("prompts to extend break when rest balance remains", async ({ page }) => {
@@ -602,7 +655,27 @@ test("creates and archives a custom label", async ({ page }) => {
   await expect(labelRow.getByText("已归档")).toBeVisible();
 });
 
+test("protects the focus-bound completed status label", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "设置" }).click();
+  const statusSection = page
+    .locator(".label-section")
+    .filter({ has: page.getByRole("heading", { name: "状态" }) });
+  const completedRow = statusSection.locator(".label-row").filter({ hasText: "完成" });
+
+  await completedRow.getByRole("button", { name: "设置 完成" }).click();
+  const dialog = page.locator(".label-settings-modal");
+  await expect(
+    dialog.getByText("这个状态和点阵里的“专注”绑定"),
+  ).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "归档" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "删除" })).toBeDisabled();
+});
+
 test("loads demo data into analytics", async ({ page }) => {
+  test.setTimeout(45_000);
+
   await page.goto("/");
 
   await page.getByRole("button", { name: "示例数据" }).click();

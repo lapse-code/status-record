@@ -37,10 +37,12 @@ This repository is for Status Record, a personal study/work tracking tool with a
 ## Implementation Guardrails
 
 - Do not hard-code the five end states as permanent enum-only values. Store them as editable labels with protected defaults.
+- The focus/completed status is the protected label id `status-completed`. It is the only reviewed-session status that remains green/focus in timelines. It can be renamed and recolored, but must not be archived or deleted. Do not use the display name to decide focus/non-focus.
 - Do not ask the user to self-report procrastination/startup delay in normal flow. Derive it from timestamps.
 - In MVP, record attention switch count instead of pretending to measure deep work minutes precisely.
 - Sleep is recorded once per date with editable `sleep_duration_minutes` and `energy_score`.
 - Breaks use both balance transactions and `break_sessions`; active break time should not be counted as procrastination for the next focus session.
+- Arrival represents a complete work cycle from check-in to check-out. Review submission, break start, break extension, break completion, and starting the next focus session must not close, recreate, or reset an open arrival. Only explicit check-out closes arrival records; starting focus may auto-create an arrival only when none is open.
 - Focus pauses are represented with `focus_segments`: pause closes the current focus segment and returns time to procrastination; resume opens a new segment in the same focus session.
 - Timeline-derived UI metrics must stay source-aligned: "today procrastination" must equal the daily timeline's red `startup_delay` real duration, not the number of red primary-color cells.
 - Date-bound records store UTC timestamps plus `local_date` and IANA `time_zone`. New records use the current device time zone; legacy records without `time_zone` fall back to `Asia/Tokyo`. Historical daily and weekly timelines must use the record's own time zone, not the current device time zone.

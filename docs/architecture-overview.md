@@ -63,6 +63,7 @@ stateDiagram-v2
   Idle --> Arrived: checkIn
   Arrived --> FocusStarted: startFocusTimer
   FocusStarted --> Arrived: focusCompletedAndReviewed
+  Arrived --> Arrived: reviewOrBreak
   Arrived --> Closed: checkOut
   Closed --> [*]
 ```

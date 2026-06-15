@@ -226,6 +226,24 @@ describe("analytics summary", () => {
     expect(buildDayTimeline(snapshot, "2026-06-11")[0]?.state).toBe("blocked");
   });
 
+  it("uses only the protected completed status as the focus timeline condition", () => {
+    const completedWithReason = createReviewedFocusTimelineSnapshot({
+      statusLabelId: "status-completed",
+      blockerLabelId: "blocker-hard",
+    });
+    const customCompletedName = createReviewedFocusTimelineSnapshot({
+      statusLabelId: "status-custom-completed",
+      blockerLabelId: "blocker-none",
+    });
+
+    expect(buildDayTimeline(completedWithReason, "2026-06-11")[0]?.state).toBe(
+      "focus",
+    );
+    expect(buildDayTimeline(customCompletedName, "2026-06-11")[0]?.state).toBe(
+      "blocked",
+    );
+  });
+
   it("marks break sessions as a separate timeline state", () => {
     const snapshot: AppSnapshot = {
       ...baseSnapshot,
@@ -1066,6 +1084,80 @@ function createTieTimelineSnapshot(): AppSnapshot {
         created_at: localIso(0, 4),
       },
     ],
+    sleepLogs: [],
+  };
+}
+
+function createReviewedFocusTimelineSnapshot({
+  statusLabelId,
+  blockerLabelId,
+}: {
+  statusLabelId: string;
+  blockerLabelId: string;
+}): AppSnapshot {
+  return {
+    ...baseSnapshot,
+    labels: [
+      ...baseSnapshot.labels,
+      {
+        id: "status-custom-completed",
+        type: "session_status",
+        name: "完成",
+        color: "#2f855a",
+        is_default: false,
+        is_active: true,
+        sort_order: 80,
+        created_at: localIso(0, 0),
+        updated_at: localIso(0, 0),
+      },
+      {
+        id: "blocker-hard",
+        type: "blocker",
+        name: "太难",
+        color: "#805ad5",
+        is_default: true,
+        is_active: true,
+        sort_order: 30,
+        created_at: localIso(0, 0),
+        updated_at: localIso(0, 0),
+      },
+    ],
+    arrivalSessions: [],
+    focusSessions: [
+      {
+        id: "focus-reviewed-condition",
+        local_date: "2026-06-11",
+        planned_duration_minutes: 5,
+        actual_duration_minutes: 5,
+        started_at: localIso(0, 0),
+        paused_total_seconds: 0,
+        completed_at: localIso(0, 5),
+        state: "reviewed",
+        earned_break_minutes: 0,
+        created_at: localIso(0, 0),
+        updated_at: localIso(0, 5),
+      },
+    ],
+    sessionReviews: [
+      {
+        id: "review-reviewed-condition",
+        focus_session_id: "focus-reviewed-condition",
+        status_label_id: statusLabelId,
+        attention_switch_count: 0,
+        created_at: localIso(0, 5),
+        updated_at: localIso(0, 5),
+      },
+    ],
+    sessionReviewLabels: [
+      {
+        id: "review-label-reviewed-condition",
+        review_id: "review-reviewed-condition",
+        label_id: blockerLabelId,
+        label_type: "blocker",
+        created_at: localIso(0, 5),
+      },
+    ],
+    breakSessions: [],
     sleepLogs: [],
   };
 }

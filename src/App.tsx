@@ -53,6 +53,7 @@ import {
   getNoneBlockerLabel,
   labelNameById,
 } from "./domain/labels";
+import { focusStatusLabelId } from "./defaults";
 import {
   fallbackTimeZone,
   formatMinutes,
@@ -315,9 +316,7 @@ export default function App() {
     ) {
       completingBreakRef.current = activeBreakSession.id;
       const shouldAskToExtendBreak = breakBalance > 0;
-      completeBreakTimer(activeBreakSession.id, {
-        restartNextArrival: !shouldAskToExtendBreak,
-      })
+      completeBreakTimer(activeBreakSession.id)
         .then(refresh)
         .then(() => {
           sendReminder("break-complete");
@@ -424,7 +423,7 @@ export default function App() {
       await checkInArrival();
       await refresh();
       setShowBreakCompletionPrompt(false);
-      setMessage("已开始记录下一轮拖延。");
+      setMessage("已到岗，请选择下一轮番茄钟继续。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "开始学习失败。");
     }
@@ -558,7 +557,7 @@ export default function App() {
               <div className="arrival-row">
                 {activeBreakSession
                   ? (
-                    <span>休息倒计时进行中，结束后会自动开始记录下一轮拖延。</span>
+                    <span>休息倒计时进行中；到岗记录保持打开，休息之外的等待会继续算拖延。</span>
                   ) : openArrival ? (
                     <>
                       <span>
@@ -843,7 +842,7 @@ export default function App() {
               () => submitSessionReview(input),
               input.breakChoice === "use_now"
                 ? "复盘已保存，休息倒计时已开始。"
-                : "复盘已保存，已开始记录下一轮拖延。",
+                : "复盘已保存，请选择下一轮番茄钟继续。",
             );
           }}
         />
@@ -2364,6 +2363,7 @@ function LabelSettingsDialog({
   const isEditing = editor.mode === "edit";
   const sourceLabel = isEditing ? editor.label : null;
   const labelType = editor.mode === "edit" ? editor.label.type : editor.type;
+  const isFocusStatusLabel = sourceLabel?.id === focusStatusLabelId;
   const [name, setName] = useState(sourceLabel?.name ?? "");
   const [color, setColor] = useState(sourceLabel?.color ?? defaultLabelColor(labelType));
 
@@ -2505,12 +2505,18 @@ function LabelSettingsDialog({
           </div>
         ) : null}
 
+        {isFocusStatusLabel ? (
+          <div className="label-settings-note">
+            这个状态和点阵里的“专注”绑定：选择它的复盘会显示为绿色。它可以改名和改颜色，但不能归档或删除。
+          </div>
+        ) : null}
+
         <div className="label-settings-actions">
           <button className="primary-button" type="submit">
             <Save size={18} />
             保存
           </button>
-          {sourceLabel ? (
+          {sourceLabel && !isFocusStatusLabel ? (
             <button
               className="secondary-button"
               type="button"
@@ -2532,8 +2538,14 @@ function LabelSettingsDialog({
           {sourceLabel ? (
             <button
               className="danger-button"
-              disabled={usageCount > 0}
-              title={usageCount > 0 ? "已有历史记录的标签只能归档" : undefined}
+              disabled={isFocusStatusLabel || usageCount > 0}
+              title={
+                isFocusStatusLabel
+                  ? "这个状态和专注判定绑定，不能删除"
+                  : usageCount > 0
+                    ? "已有历史记录的标签只能归档"
+                    : undefined
+              }
               type="button"
               onClick={handleDelete}
             >

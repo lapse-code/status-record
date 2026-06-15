@@ -1013,6 +1013,16 @@ legend {
   font-weight: 800;
 }
 
+.label-settings-note {
+  border: 1px solid #d8eadf;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #f0faf3;
+  color: #42514a;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .label-settings-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

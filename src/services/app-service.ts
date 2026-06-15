@@ -5,6 +5,7 @@ import {
   parseBackupPayload,
 } from "../storage/backup";
 import { demoDays } from "../demo-data";
+import { focusStatusLabelId } from "../defaults";
 import {
   calculateDailyBreakLedger,
   calculateDailyFocusCreditMinutes,
@@ -342,7 +343,6 @@ export async function submitSessionReview(
       db.focus_sessions,
       db.break_bank_transactions,
       db.break_sessions,
-      db.arrival_sessions,
     ],
     async () => {
       await db.session_reviews.add({
@@ -400,9 +400,6 @@ export async function submitSessionReview(
           created_at: timestamp,
           updated_at: timestamp,
         });
-        await closeCurrentArrival(timestamp);
-      } else {
-        await restartArrivalForNextFocus(timestamp, "保留休息，等待下一轮专注");
       }
 
       await db.focus_sessions.update(input.focusSessionId, {
@@ -415,7 +412,7 @@ export async function submitSessionReview(
 
 export async function completeBreakTimer(
   breakSessionId: Id,
-  options: { endedEarly?: boolean; restartNextArrival?: boolean } = {},
+  options: { endedEarly?: boolean } = {},
 ): Promise<{ usedMinutes: number; refundMinutes: number }> {
   const session = await db.break_sessions.get(breakSessionId);
   if (!session || session.state !== "running") {
@@ -434,7 +431,6 @@ export async function completeBreakTimer(
     "rw",
     db.break_sessions,
     db.break_bank_transactions,
-    db.arrival_sessions,
     async () => {
       await db.break_sessions.update(breakSessionId, {
         state: "completed",
@@ -455,10 +451,6 @@ export async function completeBreakTimer(
           note: "提前结束休息，退回未使用余额",
           created_at: timestamp,
         });
-      }
-
-      if (options.restartNextArrival ?? true) {
-        await restartArrivalForNextFocus(timestamp, "休息结束，等待下一轮专注");
       }
     },
   );
@@ -496,7 +488,6 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
     "rw",
     db.break_bank_transactions,
     db.break_sessions,
-    db.arrival_sessions,
     async () => {
       await db.break_bank_transactions.add({
         id: `break-used-${breakSessionId}`,
@@ -517,7 +508,6 @@ export async function startBreakTimer(minutes: number): Promise<Id> {
         created_at: timestamp,
         updated_at: timestamp,
       });
-      await closeCurrentArrival(timestamp);
     },
   );
 
@@ -621,6 +611,10 @@ export async function updateLabel(input: {
     updates.color = normalizeHexColor(input.color, "#4a5568");
   }
 
+  if (input.labelId === focusStatusLabelId && input.isActive === false) {
+    throw new Error("专注绑定状态不能归档。");
+  }
+
   if (typeof input.isActive === "boolean") {
     updates.is_active = input.isActive;
   }
@@ -632,6 +626,10 @@ export async function deleteLabel(labelId: Id): Promise<void> {
   const label = await db.labels.get(labelId);
   if (!label || label.deleted_at) {
     throw new Error("标签不存在。");
+  }
+
+  if (labelId === focusStatusLabelId) {
+    throw new Error("专注绑定状态不能删除。");
   }
 
   const [statusUsageCount, relationUsageCount] = await Promise.all([
@@ -921,10 +919,6 @@ async function getDailyFocusCreditMinutes(
   );
 }
 
-async function closeCurrentArrival(timestamp: string): Promise<void> {
-  await closeOpenArrivals(timestamp);
-}
-
 async function closeOpenArrivals(
   timestamp: string,
   requestedArrivalId?: Id,
@@ -950,23 +944,6 @@ async function closeOpenArrivals(
       }),
     ),
   );
-}
-
-async function restartArrivalForNextFocus(
-  timestamp: string,
-  note: string,
-): Promise<void> {
-  await closeCurrentArrival(timestamp);
-  const timeZone = getCurrentTimeZone();
-  await db.arrival_sessions.add({
-    id: createId("arrival"),
-    local_date: toLocalDate(new Date(timestamp), timeZone),
-    time_zone: timeZone,
-    arrived_at: timestamp,
-    note,
-    created_at: timestamp,
-    updated_at: timestamp,
-  });
 }
 
 async function closeRunningFocusSegment(

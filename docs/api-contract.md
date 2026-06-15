@@ -113,7 +113,7 @@ interface SubmitSessionReviewResult {
 - `blockerLabelIds` 可以包含默认“无”标签；如果选择“无”，不应同时选择其他不专注原因标签。
 - `breakMinutesUsed` 不能超过当前日期的休息余额。
 - `breakChoice = "use_now"` 时，`breakMinutesUsed` 必须大于 0，并创建休息倒计时。
-- `breakChoice = "save_for_later"` 时，不扣余额，提交后直接重开下一轮拖延记录。
+- `breakChoice = "save_for_later"` 时，不扣余额，不关闭或重开 arrival session；如果用户仍到岗，后续等待自然继续算拖延。
 - 提交后 focus session 状态变为 `reviewed`。
 
 ## Break Timer Service
@@ -145,8 +145,9 @@ interface CompleteBreakTimerResult {
 - 用户在复盘中选择“使用休息”后，系统创建 running break session。
 - 休息倒计时自然结束时，使用完整计划休息分钟。
 - 用户提前结束休息时，按已过时间向上取整扣除实际使用分钟，未用完分钟写入 adjustment 退回余额。
-- 休息自然结束且仍有可用余额时，UI 可以暂不重新打开 arrival session，而是弹窗询问是否继续休息。
-- 用户选择开始专注，或没有剩余休息余额时，系统重新打开一个 arrival session，用于记录下一轮拖延。
+- 休息自然结束且仍有可用余额时，UI 弹窗询问是否继续休息。
+- 休息开始、休息结束、继续休息都不能关闭、重开或重置 arrival session；break session 只是覆盖到岗时间线中的休息区间。
+- 用户选择开始专注时，如果没有开放到岗，UI 可以调用 `checkInArrival` 自动创建；如果已有开放到岗，必须复用原 arrival。
 - 休息余额只看当前日期；昨天未使用的休息不会进入今天。
 
 ### startBreakTimer
@@ -162,7 +163,7 @@ interface StartBreakTimerInput {
 - 用于复盘之外的继续休息场景，例如休息自然结束后继续使用余额。
 - `minutes` 必须大于 0，且不能超过当前日期的休息余额。
 - 启动时写入一条 `used` 交易，并创建新的 running `break_sessions`。
-- 如果当前有打开的 arrival session，开始休息前会关闭它，避免休息时间被记为拖延。
+- 如果当前有打开的 arrival session，开始休息不能关闭它；日点阵和拖延统计通过 `break_sessions` 覆盖休息区间，避免休息时间被记为拖延。
 
 ## Arrival Service
 
@@ -264,7 +265,7 @@ interface UpdateLabelInput {
 规则：
 
 - `isActive = false` 表示归档；归档标签不再出现在新的复盘选择中，但历史统计继续按原标签计算。
-- 默认标签和自定义标签都可以改名、改颜色、归档和解除归档。
+- 默认标签和自定义标签都可以改名、改颜色、归档和解除归档，但 `status-completed` 是专注判定绑定状态，只能改名和改颜色，不能归档或删除。
 - 删除标签使用软删除；删除前必须检查历史记录引用。
 - 已被 `session_reviews.status_label_id` 或 `session_review_labels.label_id` 引用的标签不能删除，只能归档。
 
@@ -281,6 +282,7 @@ interface DeleteLabelInput {
 - 删除前检查该标签是否被任意有效复盘记录引用。
 - 未被历史记录引用时，写入 `deleted_at` 并设置 `is_active = false`。
 - 已有历史记录时返回错误，要求用户改用归档。
+- `status-completed` 永远返回错误，不能删除。
 
 ## Settings Service
 
@@ -403,8 +405,8 @@ interface DayTimelineCell {
 - 如果同一个 cell 内多个状态时长打平，用 `blocked > focus > startup_delay > break > empty` 的优先级决定颜色；空白只有在时长最多时才成为最终状态。
 - `startup_delay` 在点阵中来自 arrival 区间内未被 focus 或 break 覆盖的等待时间，UI 显示为“拖延”。
 - `break` 来自 `break_sessions` 的休息时间，UI 显示为“休息”；自然结束的休息按实际扣除/计划分钟封顶，避免浏览器回调延迟把 5 分钟休息画成超过 5 分钟。
-- `focus` 来自未取消 focus session 的有效专注片段，UI 显示为“专注”；运行中的 `focus_segments` 用 `now` 作为临时结束时间，但不能超过本轮计划专注时长预算；完成但未复盘的 session 先按专注显示。
-- `blocked` 只来自已复盘且有非“无”的不专注原因标签，或状态为“被打断/卡住”的 focus session，UI 显示为“不专注”。
+- `focus` 来自未取消 focus session 的有效专注片段，UI 显示为“专注”；运行中的 `focus_segments` 用 `now` 作为临时结束时间，但不能超过本轮计划专注时长预算；完成但未复盘的 session 先按专注显示；已复盘 session 只有 `status_label_id = status-completed` 才保持专注。
+- `blocked` 来自已复盘且 `status_label_id !== status-completed` 的 focus session，UI 显示为“不专注”。不专注原因标签只用于解释和统计，不参与点阵颜色判定。
 - 取消的 focus session 和 canceled focus segment 不进入点阵；如果到岗仍打开，取消后的时间继续由 arrival 区间显示为拖延。
 - UI 可以为任意 `LocalDate` 调用此函数；日期导航不限制历史范围。Today 页、统计页选中今天、周点阵包含今天时应传入当前 `now` 以实时刷新。
 

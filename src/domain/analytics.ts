@@ -20,6 +20,7 @@ import type {
   ReviewDetailEntry,
   SessionReviewRecord,
 } from "../types";
+import { focusStatusLabelId } from "../defaults";
 import { computeStartupDelayForArrival } from "./startup-delay";
 import {
   getLocalDateEndUtcMs,
@@ -229,11 +230,6 @@ export function buildDayTimeline(
   const reviewByFocusId = new Map(
     reviews.map((review) => [review.focus_session_id, review]),
   );
-  const reviewIds = new Set(reviews.map((review) => review.id));
-  const reviewLabels = snapshot.sessionReviewLabels.filter((relation) =>
-    reviewIds.has(relation.review_id),
-  );
-  const labelById = new Map(snapshot.labels.map((label) => [label.id, label]));
 
   snapshot.arrivalSessions
     .filter((arrival) => !arrival.deleted_at)
@@ -275,7 +271,7 @@ export function buildDayTimeline(
     const review = reviewByFocusId.get(session.id);
     const state =
       session.state === "reviewed" &&
-      isBlockedFocusReview(review, reviewLabels, labelById)
+      isNonFocusReview(review)
         ? "blocked"
         : "focus";
     const segments = snapshot.focusSegments
@@ -825,29 +821,12 @@ function shouldKeepTimelineState(
   return timelineLayerPriority[currentState] > timelineLayerPriority[nextState];
 }
 
-function isBlockedFocusReview(
-  review: SessionReviewRecord | undefined,
-  reviewLabels: AppSnapshot["sessionReviewLabels"],
-  labelById: Map<Id, AppSnapshot["labels"][number]>,
-): boolean {
+function isNonFocusReview(review: SessionReviewRecord | undefined): boolean {
   if (!review) {
     return false;
   }
 
-  const statusName = labelById.get(review.status_label_id)?.name ?? "";
-  if (statusName.includes("被打断") || statusName.includes("卡住")) {
-    return true;
-  }
-
-  return reviewLabels
-    .filter(
-      (relation) =>
-        relation.review_id === review.id && relation.label_type === "blocker",
-    )
-    .some((relation) => {
-      const label = labelById.get(relation.label_id);
-      return label?.name !== "无";
-    });
+  return review.status_label_id !== focusStatusLabelId;
 }
 
 function formatMinuteOfDay(minuteOfDay: number): string {

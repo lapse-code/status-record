@@ -1,6 +1,8 @@
 import type { AppSettingRecord, LabelRecord } from "./types";
 import { nowIso } from "./domain/time";
 
+export const focusStatusLabelId = "status-completed";
+
 interface DefaultLabelSeed {
   id: string;
   type: LabelRecord["type"];
@@ -11,7 +13,7 @@ interface DefaultLabelSeed {
 
 export const defaultLabelSeeds: DefaultLabelSeed[] = [
   {
-    id: "status-completed",
+    id: focusStatusLabelId,
     type: "session_status",
     name: "完成",
     color: "#2f855a",
