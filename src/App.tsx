@@ -783,16 +783,23 @@ export default function App() {
                 <StatCard
                   label="今日专注"
                   value={formatMinutes(todaySummary?.totalFocusMinutes ?? 0)}
+                  tone="positive"
                 />
                 <StatCard
                   label="今日拖延"
                   value={formatMinutes(todaySummary?.totalStartupDelayMinutes ?? 0)}
+                  tone="danger"
                 />
                 <StatCard
                   label="注意力切换"
                   value={`${todaySummary?.totalAttentionSwitchCount ?? 0} 次`}
+                  tone="warning"
                 />
-                <StatCard label="休息余额" value={formatMinutes(breakBalance)} />
+                <StatCard
+                  label="休息余额"
+                  value={formatMinutes(breakBalance)}
+                  tone="positive"
+                />
               </section>
 
               <SleepPanel snapshot={snapshot} onSaved={refresh} onMessage={setMessage} />
@@ -866,9 +873,17 @@ export default function App() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "positive" | "warning" | "danger";
+}) {
   return (
-    <div className="stat-card">
+    <div className={`stat-card tone-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -1917,13 +1932,26 @@ function AnalyticsView({
         </div>
 
         <div className="summary-strip">
-          <StatCard label="专注时长" value={formatMinutes(summary.totalFocusMinutes)} />
-          <StatCard label="不专注" value={formatMinutes(summary.totalBlockedMinutes)} />
+          <StatCard
+            label="专注时长"
+            value={formatMinutes(summary.totalFocusMinutes)}
+            tone="positive"
+          />
+          <StatCard
+            label="不专注"
+            value={formatMinutes(summary.totalBlockedMinutes)}
+            tone="warning"
+          />
           <StatCard
             label="拖延"
             value={formatMinutes(summary.totalStartupDelayMinutes)}
+            tone="danger"
           />
-          <StatCard label="切换次数" value={`${summary.totalAttentionSwitchCount} 次`} />
+          <StatCard
+            label="切换次数"
+            value={`${summary.totalAttentionSwitchCount} 次`}
+            tone="warning"
+          />
           <StatCard
             label="每小时切换"
             value={
@@ -1931,6 +1959,7 @@ function AnalyticsView({
                 ? "暂无"
                 : `${summary.attentionSwitchesPerFocusHour.toFixed(1)} 次`
             }
+            tone="warning"
           />
           <StatCard
             label="平均精力"
@@ -1966,28 +1995,43 @@ function AnalyticsView({
         />
       ) : null}
 
-      <section className="panel chart-panel">
+      <section
+        className={`panel chart-panel activity-chart-panel ${
+          grain === "month" ? "wide-chart-panel" : ""
+        }`}
+      >
         <h3>专注、不专注与拖延</h3>
-        <ResponsiveContainer height={260} width="100%">
-          <BarChart data={summary.trend}>
+        <ResponsiveContainer height={grain === "month" ? 360 : 280} width="100%">
+          <BarChart
+            data={summary.trend}
+            barCategoryGap={grain === "month" ? "22%" : "18%"}
+          >
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+            <XAxis
+              dataKey="date"
+              interval={grain === "month" ? 6 : 0}
+              tick={{ fontSize: 12 }}
+              tickFormatter={(date) => formatTrendDateTick(date, grain)}
+            />
             <YAxis />
             <Tooltip />
             <Bar
               dataKey="focusMinutes"
               fill={timelineColors.focus}
               name="专注"
+              stackId={grain === "month" ? "duration" : undefined}
             />
             <Bar
               dataKey="blockedMinutes"
               fill={timelineColors.blocked}
               name="不专注"
+              stackId={grain === "month" ? "duration" : undefined}
             />
             <Bar
               dataKey="startupDelayMinutes"
               fill={timelineColors.startup_delay}
               name="拖延"
+              stackId={grain === "month" ? "duration" : undefined}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -2213,7 +2257,10 @@ function AnalyticsRangeControls({
 function DailySleepStatsPanel({ summary }: { summary: AnalyticsSummary }) {
   return (
     <section className="panel daily-sleep-panel">
-      <h3>睡眠</h3>
+      <div className="daily-sleep-heading">
+        <h3>睡眠</h3>
+        <p>当天睡眠参数</p>
+      </div>
       <div className="daily-sleep-grid">
         <StatCard
           label="睡眠时长"
@@ -2222,6 +2269,7 @@ function DailySleepStatsPanel({ summary }: { summary: AnalyticsSummary }) {
               ? "暂无"
               : formatMinutes(summary.averageSleepDurationMinutes)
           }
+          tone="positive"
         />
         <StatCard
           label="精力"
@@ -2513,6 +2561,14 @@ function formatPercent(value: number): string {
   }
 
   return `${Math.round(value)}%`;
+}
+
+function formatTrendDateTick(date: string, grain: AnalyticsGrain): string {
+  if (grain === "month" || grain === "week") {
+    return date.slice(5);
+  }
+
+  return date;
 }
 
 function getTimelineCellStyle(cell: DayTimelineCell): React.CSSProperties {

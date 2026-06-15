@@ -641,12 +641,28 @@ legend {
   min-height: 330px;
 }
 
-.daily-sleep-panel {
-  min-height: 0;
+.activity-chart-panel.wide-chart-panel {
+  grid-column: 1 / -1;
+  min-height: 430px;
 }
 
-.daily-sleep-panel h3 {
-  margin-bottom: 14px;
+.daily-sleep-panel {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  align-items: center;
+  min-height: 0;
+  gap: 16px;
+}
+
+.daily-sleep-heading h3 {
+  margin-bottom: 4px;
+}
+
+.daily-sleep-heading p {
+  margin: 0;
+  color: #63707a;
+  font-weight: 700;
 }
 
 .daily-sleep-grid {
@@ -1181,6 +1197,7 @@ legend {
   .custom-time-form,
   .sleep-form,
   .daily-sleep-grid,
+  .daily-sleep-panel,
   .modal-actions,
   .analytics-range-controls,
   .timeline-color-row,
@@ -1570,17 +1587,20 @@ body {
   line-height: 1.1;
 }
 
-.stat-card:nth-child(1) strong,
-.stat-card:nth-child(4) strong {
+.stat-card.tone-positive strong {
   color: #167246;
 }
 
-.stat-card:nth-child(2) strong {
+.stat-card.tone-warning strong {
+  color: #b97812;
+}
+
+.stat-card.tone-danger strong {
   color: #c7352b;
 }
 
-.stat-card:nth-child(3) strong {
-  color: #b97812;
+.stat-card.tone-neutral strong {
+  color: #17211d;
 }
 
 .sleep-panel .panel-heading {
