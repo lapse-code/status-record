@@ -2128,6 +2128,9 @@ const AnalyticsView = memo(function AnalyticsView({
   const [editingReviewEntry, setEditingReviewEntry] = useState<
     AnalyticsSummary["reviewEntries"][number] | null
   >(null);
+  const [selectedRecordDate, setSelectedRecordDate] = useState(() =>
+    toLocalDate(now),
+  );
   const [analyticsAnchorDate, setAnalyticsAnchorDate] = useState(() =>
     toLocalDate(now),
   );
@@ -2169,16 +2172,31 @@ const AnalyticsView = memo(function AnalyticsView({
       item.id !== noneBlockerLabelId &&
       item.name !== "无",
   );
+  const recordDates = useMemo(
+    () => summary.trend.map((point) => point.date),
+    [summary.trend],
+  );
+  const reviewCountByDate = useMemo(
+    () => countReviewEntriesByDate(summary.reviewEntries),
+    [summary.reviewEntries],
+  );
   const selectedDetailLabel = showDailyDetails && detailFilter
     ? getDistributionData(detailFilter.type, statusData, productData, blockerData).find(
         (item) => item.id === detailFilter.id,
       )
     : undefined;
+  const selectedDateReviewEntries = useMemo(
+    () =>
+      summary.reviewEntries.filter(
+        (entry) => entry.local_date === selectedRecordDate,
+      ),
+    [selectedRecordDate, summary.reviewEntries],
+  );
   const filteredReviewEntries = showDailyDetails && detailFilter
-    ? summary.reviewEntries.filter((entry) =>
+    ? selectedDateReviewEntries.filter((entry) =>
         matchesDetailFilter(entry, detailFilter),
       )
-    : summary.reviewEntries;
+    : selectedDateReviewEntries;
 
   function toggleDetailFilter(type: LabelType, id: Id) {
     setDetailFilter((current) =>
@@ -2203,6 +2221,29 @@ const AnalyticsView = memo(function AnalyticsView({
       setDetailFilter(null);
     }
   }, [blockerData, detailFilter, productData, showDailyDetails, statusData]);
+
+  useEffect(() => {
+    if (recordDates.length === 0) {
+      return;
+    }
+
+    setSelectedRecordDate((current) => {
+      if (recordDates.includes(current)) {
+        return current;
+      }
+
+      const today = toLocalDate();
+      if (recordDates.includes(today)) {
+        return today;
+      }
+
+      return (
+        recordDates.find((date) => (reviewCountByDate.get(date) ?? 0) > 0) ??
+        recordDates[0] ??
+        current
+      );
+    });
+  }, [recordDates, reviewCountByDate]);
 
   return (
     <main className="analytics-layout">
@@ -2410,65 +2451,18 @@ const AnalyticsView = memo(function AnalyticsView({
         }
       />
 
-      {showDailyDetails ? (
-        <section className="panel notes-panel">
-          <div className="notes-panel-heading">
-            <div>
-              <h3>记录明细</h3>
-              <p>
-                {selectedDetailLabel
-                  ? `当前只看「${selectedDetailLabel.name}」相关记录`
-                  : "点击上方状态、产物或不专注原因图表，可筛选当天复盘记录。"}
-              </p>
-            </div>
-            {selectedDetailLabel ? (
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setDetailFilter(null)}
-              >
-                全部
-              </button>
-            ) : null}
-          </div>
-          {filteredReviewEntries.length > 0 ? (
-            <ul>
-              {filteredReviewEntries.map((entry) => (
-                <li key={entry.id}>
-                  <div className="record-entry-heading">
-                    <div className="record-meta">
-                      <span>{entry.local_date}</span>
-                      <strong>{entry.statusLabelName}</strong>
-                      <em>{formatMinutes(entry.focusMinutes)}</em>
-                      <em>{entry.attentionSwitchCount} 次切换</em>
-                    </div>
-                    <button
-                      className="ghost-button compact-button"
-                      type="button"
-                      onClick={() => setEditingReviewEntry(entry)}
-                    >
-                      <SettingsIcon size={16} />
-                      编辑
-                    </button>
-                  </div>
-                  <div className="record-tags">
-                    <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
-                    <span>不专注原因：{entry.blockerLabelNames.join("、") || "未标记"}</span>
-                  </div>
-                  {entry.productNote ? <p>产物记录：{entry.productNote}</p> : null}
-                  {entry.blockerNote ? <p>不专注记录：{entry.blockerNote}</p> : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="empty-text">
-              {selectedDetailLabel
-                ? `当天没有「${selectedDetailLabel.name}」相关复盘记录。`
-                : "当天还没有复盘记录。"}
-            </p>
-          )}
-        </section>
-      ) : null}
+      <ReviewDetailsPanel
+        entries={filteredReviewEntries}
+        grain={grain}
+        recordDates={recordDates}
+        reviewCountByDate={reviewCountByDate}
+        selectedDate={selectedRecordDate}
+        selectedDetailLabel={selectedDetailLabel}
+        showDailyDetails={showDailyDetails}
+        onClearFilter={() => setDetailFilter(null)}
+        onDateSelect={setSelectedRecordDate}
+        onEdit={setEditingReviewEntry}
+      />
 
       {editingReviewEntry ? (
         <EditReviewModal
@@ -2484,6 +2478,159 @@ const AnalyticsView = memo(function AnalyticsView({
         />
       ) : null}
     </main>
+  );
+});
+
+const ReviewDetailsPanel = memo(function ReviewDetailsPanel({
+  entries,
+  grain,
+  recordDates,
+  reviewCountByDate,
+  selectedDate,
+  selectedDetailLabel,
+  showDailyDetails,
+  onClearFilter,
+  onDateSelect,
+  onEdit,
+}: {
+  entries: AnalyticsSummary["reviewEntries"];
+  grain: AnalyticsGrain;
+  recordDates: string[];
+  reviewCountByDate: Map<string, number>;
+  selectedDate: string;
+  selectedDetailLabel?: { name: string };
+  showDailyDetails: boolean;
+  onClearFilter: () => void;
+  onDateSelect: (date: string) => void;
+  onEdit: (entry: AnalyticsSummary["reviewEntries"][number]) => void;
+}) {
+  const emptyText = selectedDetailLabel
+    ? `当天没有「${selectedDetailLabel.name}」相关复盘记录。`
+    : `${selectedDate} 没有复盘记录。`;
+  const headingText = selectedDetailLabel
+    ? `当前只看「${selectedDetailLabel.name}」相关记录`
+    : showDailyDetails
+      ? "点击上方状态、产物或不专注原因图表，可筛选当天复盘记录。"
+      : "选择一个日期，查看当天的复盘记录。";
+
+  return (
+    <section className="panel notes-panel">
+      <div className="notes-panel-heading">
+        <div>
+          <h3>记录明细</h3>
+          <p>{headingText}</p>
+        </div>
+        {selectedDetailLabel ? (
+          <button className="ghost-button" type="button" onClick={onClearFilter}>
+            全部
+          </button>
+        ) : null}
+      </div>
+
+      {!showDailyDetails ? (
+        <RecordDatePicker
+          grain={grain}
+          recordDates={recordDates}
+          reviewCountByDate={reviewCountByDate}
+          selectedDate={selectedDate}
+          onDateSelect={onDateSelect}
+        />
+      ) : null}
+
+      {entries.length > 0 ? (
+        <ul>
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <div className="record-entry-heading">
+                <div className="record-meta">
+                  <span>{entry.local_date}</span>
+                  <strong>{entry.statusLabelName}</strong>
+                  <em>{formatMinutes(entry.focusMinutes)}</em>
+                  <em>{entry.attentionSwitchCount} 次切换</em>
+                </div>
+                <button
+                  className="ghost-button compact-button"
+                  type="button"
+                  onClick={() => onEdit(entry)}
+                >
+                  <SettingsIcon size={16} />
+                  编辑
+                </button>
+              </div>
+              <div className="record-tags">
+                <span>产物：{entry.productLabelNames.join("、") || "未标记"}</span>
+                <span>不专注原因：{entry.blockerLabelNames.join("、") || "未标记"}</span>
+              </div>
+              {entry.productNote ? <p>产物记录：{entry.productNote}</p> : null}
+              {entry.blockerNote ? <p>不专注记录：{entry.blockerNote}</p> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty-text">{emptyText}</p>
+      )}
+    </section>
+  );
+});
+
+const RecordDatePicker = memo(function RecordDatePicker({
+  grain,
+  recordDates,
+  reviewCountByDate,
+  selectedDate,
+  onDateSelect,
+}: {
+  grain: AnalyticsGrain;
+  recordDates: string[];
+  reviewCountByDate: Map<string, number>;
+  selectedDate: string;
+  onDateSelect: (date: string) => void;
+}) {
+  if (grain === "day") {
+    return null;
+  }
+
+  const calendarDates =
+    grain === "month" ? buildMonthCalendarCells(recordDates) : recordDates;
+
+  return (
+    <div className={`record-date-picker ${grain}`}>
+      {grain === "month" ? (
+        <div className="record-date-weekdays" aria-hidden="true">
+          {["一", "二", "三", "四", "五", "六", "日"].map((day) => (
+            <span key={day}>{day}</span>
+          ))}
+        </div>
+      ) : null}
+      <div className={`record-date-grid ${grain}`}>
+        {calendarDates.map((date, index) => {
+          if (!date) {
+            return <span className="record-date-empty" key={`empty-${index}`} />;
+          }
+
+          const count = reviewCountByDate.get(date) ?? 0;
+          const isSelected = date === selectedDate;
+
+          return (
+            <button
+              key={date}
+              className={`record-date-button ${isSelected ? "selected" : ""} ${
+                count > 0 ? "has-records" : ""
+              }`}
+              type="button"
+              onClick={() => onDateSelect(date)}
+            >
+              <span>
+                {grain === "month"
+                  ? formatCalendarDayNumber(date)
+                  : formatRecordDateLabel(date)}
+              </span>
+              <em>{count > 0 ? `${count} 条` : "无"}</em>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 });
 
@@ -2705,6 +2852,43 @@ function matchesDetailFilter(
   }
 
   return entry.blockerLabelIds.includes(filter.id);
+}
+
+function countReviewEntriesByDate(
+  entries: AnalyticsSummary["reviewEntries"],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  entries.forEach((entry) => {
+    counts.set(entry.local_date, (counts.get(entry.local_date) ?? 0) + 1);
+  });
+  return counts;
+}
+
+function buildMonthCalendarCells(recordDates: string[]): Array<string | null> {
+  if (recordDates.length === 0) {
+    return [];
+  }
+
+  const firstDate = recordDates[0] ?? toLocalDate();
+  const firstWeekday = new Date(`${firstDate}T00:00:00`).getDay();
+  const leadingEmptyCount = (firstWeekday + 6) % 7;
+  const cells: Array<string | null> = [
+    ...Array.from({ length: leadingEmptyCount }, () => null),
+    ...recordDates,
+  ];
+  const trailingEmptyCount = (7 - (cells.length % 7)) % 7;
+  return [
+    ...cells,
+    ...Array.from({ length: trailingEmptyCount }, () => null),
+  ];
+}
+
+function formatRecordDateLabel(date: string): string {
+  return `${date.slice(5)} ${formatWeekday(date)}`;
+}
+
+function formatCalendarDayNumber(date: string): string {
+  return String(Number(date.slice(8)));
 }
 
 const DayTimelinePanel = memo(function DayTimelinePanel({
