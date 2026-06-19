@@ -39,7 +39,7 @@ import {
   Archive,
   ArchiveRestore,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildAnalyticsSummary,
   buildDayTimeline,
@@ -203,13 +203,38 @@ const labelSections: {
     description: "记录导致分心、打断或卡住的原因。",
   },
 ];
+const timerRefreshIntervalMs = 1_000;
+const timelineRefreshIntervalMs = 30_000;
+const analyticsRefreshIntervalMs = 60_000;
+
+function useNowTicker(intervalMs: number): Date {
+  const [now] = useNowTickerState(intervalMs);
+  return now;
+}
+
+function useNowTickerState(intervalMs: number) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+
+  return [now, setNow] as const;
+}
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot);
   const [activeTab, setActiveTab] = useState<TabId>("today");
   const [customMinutes, setCustomMinutes] = useState(25);
   const [message, setMessage] = useState<string>("");
-  const [now, setNow] = useState(() => new Date());
+  const timerNow = useNowTicker(timerRefreshIntervalMs);
+  const [timelineNow, setTimelineNow] = useNowTickerState(timelineRefreshIntervalMs);
+  const [analyticsNow, setAnalyticsNow] = useNowTickerState(
+    analyticsRefreshIntervalMs,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [showBreakCompletionPrompt, setShowBreakCompletionPrompt] = useState(false);
   const [showManualRecordModal, setShowManualRecordModal] = useState(false);
@@ -228,11 +253,10 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(new Date());
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const nextNow = new Date();
+    setTimelineNow(nextNow);
+    setAnalyticsNow(nextNow);
+  }, [setAnalyticsNow, setTimelineNow, snapshot]);
 
   const activeFocusSession = useMemo(
     () => getActiveFocusSession(snapshot.focusSessions),
@@ -250,7 +274,7 @@ export default function App() {
     () => getOpenArrival(snapshot.arrivalSessions),
     [snapshot.arrivalSessions],
   );
-  const currentLocalDate = toLocalDate(now);
+  const currentLocalDate = toLocalDate(timerNow);
   const timelineColors = useMemo(
     () => getTimelineColors(snapshot.appSettings),
     [snapshot.appSettings],
@@ -269,7 +293,7 @@ export default function App() {
     [currentLocalDate, snapshot.breakBankTransactions, snapshot.focusSessions],
   );
   const breakBalance = breakLedger.balanceMinutes;
-  const todayViewNow = activeTab === "today" ? now : null;
+  const todayViewNow = activeTab === "today" ? timelineNow : null;
   const todaySummary = useMemo(
     () =>
       todayViewNow
@@ -290,11 +314,23 @@ export default function App() {
     () => getTimelineTimeZoneLabel(snapshot, todayTimelineDate),
     [snapshot, todayTimelineDate],
   );
+  const handleTodayTimelineDateChange = useCallback((date: string | null) => {
+    setTodayTimelineDate(date || toLocalDate());
+  }, []);
+  const handleTodayTimelineNextDate = useCallback(() => {
+    setTodayTimelineDate((date) => shiftLocalDate(date, 1));
+  }, []);
+  const handleTodayTimelinePreviousDate = useCallback(() => {
+    setTodayTimelineDate((date) => shiftLocalDate(date, -1));
+  }, []);
+  const handleTodayTimelineToday = useCallback(() => {
+    setTodayTimelineDate(toLocalDate());
+  }, []);
   const remainingSeconds = activeFocusSession
-    ? getRemainingSeconds(activeFocusSession, now)
+    ? getRemainingSeconds(activeFocusSession, timerNow)
     : 0;
   const breakRemainingSeconds = activeBreakSession
-    ? getBreakRemainingSeconds(activeBreakSession, now)
+    ? getBreakRemainingSeconds(activeBreakSession, timerNow)
     : 0;
 
   useEffect(() => {
@@ -520,9 +556,9 @@ export default function App() {
             <h1>{activeViewCopy.title}</h1>
           </div>
           <div className="topbar-meta">
-            <span>{toLocalDate(now)}</span>
+            <span>{toLocalDate(timerNow)}</span>
             <span>
-              {now.toLocaleDateString("zh-CN", {
+              {timerNow.toLocaleDateString("zh-CN", {
                 weekday: "long",
               })}
             </span>
@@ -826,14 +862,10 @@ export default function App() {
               cells={todayTimeline}
               date={todayTimelineDate}
               timeZoneLabel={todayTimelineTimeZoneLabel}
-              onDateChange={(date) => setTodayTimelineDate(date || toLocalDate())}
-              onNextDate={() =>
-                setTodayTimelineDate((date) => shiftLocalDate(date, 1))
-              }
-              onPreviousDate={() =>
-                setTodayTimelineDate((date) => shiftLocalDate(date, -1))
-              }
-              onToday={() => setTodayTimelineDate(toLocalDate())}
+              onDateChange={handleTodayTimelineDateChange}
+              onNextDate={handleTodayTimelineNextDate}
+              onPreviousDate={handleTodayTimelinePreviousDate}
+              onToday={handleTodayTimelineToday}
             />
           </main>
         ) : null}
@@ -841,7 +873,7 @@ export default function App() {
         {activeTab === "analytics" ? (
           <AnalyticsView
             snapshot={snapshot}
-            now={now}
+            now={analyticsNow}
             timelineColors={timelineColors}
             onChanged={refresh}
             onMessage={setMessage}
@@ -849,7 +881,7 @@ export default function App() {
         ) : null}
 
         {activeTab === "week" ? (
-          <WeekTimelineView snapshot={snapshot} now={now} />
+          <WeekTimelineView snapshot={snapshot} now={timelineNow} />
         ) : null}
 
         {activeTab === "labels" ? (
@@ -886,7 +918,7 @@ export default function App() {
         <ManualRecordModal
           labels={snapshot.labels}
           localDate={currentLocalDate}
-          now={now}
+          now={timerNow}
           onCancel={() => setShowManualRecordModal(false)}
           onSubmit={async (input) => {
             await createManualFocusRecord(input);
@@ -925,7 +957,7 @@ function StatCard({
   );
 }
 
-function SleepPanel({
+const SleepPanel = memo(function SleepPanel({
   snapshot,
   onSaved,
   onMessage,
@@ -1126,7 +1158,7 @@ function SleepPanel({
       </form>
     </section>
   );
-}
+});
 
 function normalizeSleepDuration(totalMinutes: number): number {
   if (!Number.isFinite(totalMinutes)) {
@@ -1955,7 +1987,7 @@ function BreakCompletionModal({
   );
 }
 
-function WeekTimelineView({
+const WeekTimelineView = memo(function WeekTimelineView({
   snapshot,
   now,
 }: {
@@ -2035,9 +2067,9 @@ function WeekTimelineView({
       </section>
     </main>
   );
-}
+});
 
-function WeekTimelineDay({
+const WeekTimelineDay = memo(function WeekTimelineDay({
   cells,
   date,
   timeZoneLabel,
@@ -2047,10 +2079,9 @@ function WeekTimelineDay({
   timeZoneLabel: string | null;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
-  const { columns, durationMsByState, mode } = getTimelineLayout(
-    cells,
-    panelWidth,
-    720,
+  const { columns, durationMsByState, mode } = useMemo(
+    () => getTimelineLayout(cells, panelWidth, 720),
+    [cells, panelWidth],
   );
   const weekday = formatWeekday(date);
 
@@ -2077,9 +2108,9 @@ function WeekTimelineDay({
       <TimelineMatrix columns={columns} date={date} />
     </article>
   );
-}
+});
 
-function AnalyticsView({
+const AnalyticsView = memo(function AnalyticsView({
   snapshot,
   now,
   timelineColors,
@@ -2454,7 +2485,7 @@ function AnalyticsView({
       ) : null}
     </main>
   );
-}
+});
 
 function AnalyticsRangeControls({
   anchorDate,
@@ -2530,7 +2561,11 @@ function AnalyticsRangeControls({
   );
 }
 
-function DailySleepStatsPanel({ summary }: { summary: AnalyticsSummary }) {
+const DailySleepStatsPanel = memo(function DailySleepStatsPanel({
+  summary,
+}: {
+  summary: AnalyticsSummary;
+}) {
   return (
     <section className="panel daily-sleep-panel">
       <div className="daily-sleep-heading">
@@ -2558,9 +2593,9 @@ function DailySleepStatsPanel({ summary }: { summary: AnalyticsSummary }) {
       </div>
     </section>
   );
-}
+});
 
-function TimeSharePanel({
+const TimeSharePanel = memo(function TimeSharePanel({
   summary,
   timelineColors,
 }: {
@@ -2638,7 +2673,7 @@ function TimeSharePanel({
       )}
     </section>
   );
-}
+});
 
 function getDistributionData(
   type: LabelType,
@@ -2672,7 +2707,7 @@ function matchesDetailFilter(
   return entry.blockerLabelIds.includes(filter.id);
 }
 
-function DayTimelinePanel({
+const DayTimelinePanel = memo(function DayTimelinePanel({
   cells,
   date,
   timeZoneLabel,
@@ -2692,7 +2727,10 @@ function DayTimelinePanel({
   onToday: () => void;
 }) {
   const [panelRef, panelWidth] = useElementWidth<HTMLElement>();
-  const { columns, durationMsByState, mode } = getTimelineLayout(cells, panelWidth);
+  const { columns, durationMsByState, mode } = useMemo(
+    () => getTimelineLayout(cells, panelWidth),
+    [cells, panelWidth],
+  );
 
   return (
     <section
@@ -2743,9 +2781,9 @@ function DayTimelinePanel({
       <TimelineMatrix columns={columns} date={date} />
     </section>
   );
-}
+});
 
-function TimelineLegend({
+const TimelineLegend = memo(function TimelineLegend({
   durationMsByState,
 }: {
   durationMsByState: Record<DayTimelineCell["state"], number>;
@@ -2770,9 +2808,9 @@ function TimelineLegend({
       </span>
     </div>
   );
-}
+});
 
-function TimelineMatrix({
+const TimelineMatrix = memo(function TimelineMatrix({
   columns,
   date,
 }: {
@@ -2803,7 +2841,7 @@ function TimelineMatrix({
       </div>
     </div>
   );
-}
+});
 
 function getTimelineLayout(
   cells: DayTimelineCell[],
@@ -2898,7 +2936,10 @@ function useElementWidth<T extends HTMLElement>() {
     const observedElement: T = element;
 
     function updateWidth() {
-      setWidth(observedElement.getBoundingClientRect().width);
+      const nextWidth = Math.round(observedElement.getBoundingClientRect().width);
+      setWidth((currentWidth) =>
+        currentWidth === nextWidth ? currentWidth : nextWidth,
+      );
     }
 
     updateWidth();
@@ -2931,7 +2972,7 @@ function timelineCellLabel(state: DayTimelineCell["state"]) {
   return "空白";
 }
 
-function DistributionPanel({
+const DistributionPanel = memo(function DistributionPanel({
   title,
   data,
   emptyText = "暂无数据。",
@@ -2998,7 +3039,7 @@ function DistributionPanel({
       )}
     </section>
   );
-}
+});
 
 function DistributionLegendContent({
   item,
@@ -3017,7 +3058,7 @@ function DistributionLegendContent({
   );
 }
 
-function SettingsView({
+const SettingsView = memo(function SettingsView({
   snapshot,
   timelineColors,
   onChanged,
@@ -3149,7 +3190,7 @@ function SettingsView({
       ) : null}
     </main>
   );
-}
+});
 
 type LabelEditorState =
   | { mode: "create"; type: LabelType }
