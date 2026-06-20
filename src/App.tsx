@@ -22,6 +22,7 @@ import {
   ChevronUp,
   Clock,
   Download,
+  LayoutGrid,
   LogIn,
   LogOut,
   Moon,
@@ -612,7 +613,7 @@ export default function App() {
   const navigation = [
     { id: "today" as const, label: "今天", icon: Clock },
     { id: "analytics" as const, label: "统计", icon: BarChart3 },
-    { id: "week" as const, label: "周点阵", icon: CalendarDays },
+    { id: "week" as const, label: "周点阵", icon: LayoutGrid },
     { id: "calendar" as const, label: "日历", icon: CalendarDays },
     { id: "labels" as const, label: "设置", icon: SettingsIcon },
   ];
@@ -675,17 +676,19 @@ export default function App() {
 
         <div className="side-spacer" />
 
-        <div className="side-panel subtle">
-          <span>本地数据已就绪</span>
-          <i>数据保存在此设备</i>
-        </div>
+        <div className="side-footer">
+          <div className="side-panel subtle">
+            <span>本地数据已就绪</span>
+            <i>数据保存在此设备</i>
+          </div>
 
-        <DataActions
-          className="data-actions side-actions"
-          onExport={handleExport}
-          onImportClick={() => importFileInputRef.current?.click()}
-          onSeedDemoData={handleSeedDemoData}
-        />
+          <DataActions
+            className="data-actions side-actions"
+            onExport={handleExport}
+            onImportClick={() => importFileInputRef.current?.click()}
+            onSeedDemoData={handleSeedDemoData}
+          />
+        </div>
       </aside>
 
       <div className="workspace">
@@ -2357,7 +2360,7 @@ const WeekTimelineDay = memo(function WeekTimelineDay({
   );
 });
 
-const calendarHourHeightPx = 58;
+const calendarHourHeightPx = 216;
 
 const CalendarView = memo(function CalendarView({
   snapshot,
@@ -2561,14 +2564,11 @@ function CalendarEventCard({ entry }: { entry: CalendarEntry }) {
         {entry.startTimeLabel} - {entry.endTimeLabel}
       </time>
       <strong>{getCalendarEntryTitle(entry)}</strong>
-      {note ? <p>{note}</p> : <p className="calendar-muted-text">未填写文字记录</p>}
-      {entry.productLabels.length > 0 ? (
-        <div className="calendar-event-tags">
-          {entry.productLabels.map((label) => (
-            <CalendarLabelChip key={label.id} label={label} />
-          ))}
-        </div>
-      ) : null}
+      {note ? (
+        <p className="calendar-event-note">{note}</p>
+      ) : (
+        <p className="calendar-muted-text">未填写文字记录</p>
+      )}
     </article>
   );
 }
@@ -2700,7 +2700,7 @@ function getCalendarEventStyle(entry: CalendarEntry): React.CSSProperties {
   const startMinute = Math.max(0, Math.min(24 * 60, entry.startMinuteOfDay));
   const endMinute = Math.max(startMinute + 1, Math.min(24 * 60, entry.endMinuteOfDay));
   const top = (startMinute / 60) * calendarHourHeightPx;
-  const height = Math.max(48, ((endMinute - startMinute) / 60) * calendarHourHeightPx);
+  const height = Math.max(88, ((endMinute - startMinute) / 60) * calendarHourHeightPx);
   const color = entry.productLabels[0]?.color ?? entry.statusLabel.color ?? "#2f855a";
 
   return {
