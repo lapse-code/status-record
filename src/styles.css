@@ -305,6 +305,12 @@ h3 {
   background: transparent;
 }
 
+.ghost-button.danger {
+  border-color: #efc9c4;
+  color: #b12f2b;
+  background: #fff8f6;
+}
+
 .danger-button {
   border-color: #e4b5a7;
   color: #8c2f1d;
@@ -2196,6 +2202,11 @@ body {
   background: #f7faf7;
 }
 
+.ghost-button.danger:hover {
+  border-color: #e4a49d;
+  background: #fff0ed;
+}
+
 .danger-button {
   border-color: #efc9c4;
   color: #b12f2b;
@@ -2251,7 +2262,7 @@ textarea:focus {
 
   .workspace-data-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     margin: -2px 0 18px;
   }
 
@@ -2276,14 +2287,6 @@ textarea:focus {
 
   .side-nav {
     padding: 16px 12px;
-  }
-
-  .workspace-data-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .workspace-data-actions .ghost-button:first-child {
-    grid-column: 1 / -1;
   }
 
   .topbar,

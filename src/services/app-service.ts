@@ -1087,6 +1087,26 @@ export async function seedDemoData(): Promise<{
   };
 }
 
+export async function clearDemoData(): Promise<{
+  deletedRecordCount: number;
+  tableCounts: Record<string, number>;
+}> {
+  await initializeDatabase();
+
+  const tableCounts = await deleteDemoRecords();
+  const deletedRecordCount = Object.values(tableCounts).reduce(
+    (total, count) => total + count,
+    0,
+  );
+
+  await initializeDatabase();
+
+  return {
+    deletedRecordCount,
+    tableCounts,
+  };
+}
+
 function normalizeHexColor(value: string, fallbackColor: string): string {
   const color = value.trim();
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallbackColor;
@@ -1267,23 +1287,73 @@ async function ensureCompletedFocusSegmentFallback(
   });
 }
 
-async function deleteDemoRecords(): Promise<void> {
-  await Promise.all([
-    deleteRecordsWithPrefix(db.arrival_sessions, "demo-"),
-    deleteRecordsWithPrefix(db.focus_sessions, "demo-"),
-    deleteRecordsWithPrefix(db.focus_segments, "demo-"),
-    deleteRecordsWithPrefix(db.session_reviews, "demo-"),
-    deleteRecordsWithPrefix(db.session_review_labels, "demo-"),
-    deleteRecordsWithPrefix(db.break_bank_transactions, "demo-"),
-    deleteRecordsWithPrefix(db.break_sessions, "demo-"),
-    deleteRecordsWithPrefix(db.sleep_logs, "demo-"),
-  ]);
+async function deleteDemoRecords(): Promise<Record<string, number>> {
+  const tableCounts = {
+    labels: 0,
+    arrival_sessions: 0,
+    focus_sessions: 0,
+    focus_segments: 0,
+    session_reviews: 0,
+    session_review_labels: 0,
+    break_bank_transactions: 0,
+    break_sessions: 0,
+    sleep_logs: 0,
+  };
+
+  await db.transaction(
+    "rw",
+    [
+      db.labels,
+      db.arrival_sessions,
+      db.focus_sessions,
+      db.focus_segments,
+      db.session_reviews,
+      db.session_review_labels,
+      db.break_bank_transactions,
+      db.break_sessions,
+      db.sleep_logs,
+    ],
+    async () => {
+      tableCounts.labels = await deleteRecordsWithPrefix(db.labels, "demo-");
+      tableCounts.arrival_sessions = await deleteRecordsWithPrefix(
+        db.arrival_sessions,
+        "demo-",
+      );
+      tableCounts.focus_sessions = await deleteRecordsWithPrefix(
+        db.focus_sessions,
+        "demo-",
+      );
+      tableCounts.focus_segments = await deleteRecordsWithPrefix(
+        db.focus_segments,
+        "demo-",
+      );
+      tableCounts.session_reviews = await deleteRecordsWithPrefix(
+        db.session_reviews,
+        "demo-",
+      );
+      tableCounts.session_review_labels = await deleteRecordsWithPrefix(
+        db.session_review_labels,
+        "demo-",
+      );
+      tableCounts.break_bank_transactions = await deleteRecordsWithPrefix(
+        db.break_bank_transactions,
+        "demo-",
+      );
+      tableCounts.break_sessions = await deleteRecordsWithPrefix(
+        db.break_sessions,
+        "demo-",
+      );
+      tableCounts.sleep_logs = await deleteRecordsWithPrefix(db.sleep_logs, "demo-");
+    },
+  );
+
+  return tableCounts;
 }
 
 async function deleteRecordsWithPrefix<T extends { id: string }>(
   table: { toArray: () => Promise<T[]>; bulkDelete: (keys: string[]) => Promise<unknown> },
   prefix: string,
-): Promise<void> {
+): Promise<number> {
   const keys = (await table.toArray())
     .filter((record) => record.id.startsWith(prefix))
     .map((record) => record.id);
@@ -1291,6 +1361,8 @@ async function deleteRecordsWithPrefix<T extends { id: string }>(
   if (keys.length > 0) {
     await table.bulkDelete(keys);
   }
+
+  return keys.length;
 }
 
 async function importSleepLogs(records: SleepLogRecord[]): Promise<void> {

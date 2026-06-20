@@ -76,6 +76,7 @@ import {
   autoCheckoutIdleArrival,
   checkInArrival,
   checkOutArrival,
+  clearDemoData,
   completeBreakTimer,
   completeFocusTimer,
   createManualFocusRecord,
@@ -121,6 +122,7 @@ type DataActionsProps = {
   onExport: () => void;
   onImportClick: () => void;
   onSeedDemoData: () => void;
+  onClearDemoData: () => void;
 };
 
 function DataActions({
@@ -128,12 +130,17 @@ function DataActions({
   onExport,
   onImportClick,
   onSeedDemoData,
+  onClearDemoData,
 }: DataActionsProps) {
   return (
     <div className={className} aria-label="数据操作">
       <button className="ghost-button" type="button" onClick={onSeedDemoData}>
         <Plus size={18} />
         示例数据
+      </button>
+      <button className="ghost-button danger" type="button" onClick={onClearDemoData}>
+        <Trash2 size={18} />
+        清除示例
       </button>
       <button className="ghost-button" type="button" onClick={onImportClick}>
         <Upload size={18} />
@@ -588,6 +595,28 @@ export default function App() {
     }
   }
 
+  async function handleClearDemoData() {
+    const confirmed = window.confirm(
+      "只会删除示例数据，不会删除你的真实记录。确定清除吗？",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await clearDemoData();
+      await refresh();
+      setMessage(
+        result.deletedRecordCount > 0
+          ? `已清除 ${result.deletedRecordCount} 条示例数据。`
+          : "没有发现需要清除的示例数据。",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "清除示例数据失败。");
+    }
+  }
+
   async function handleExtendBreak(minutes: number) {
     try {
       await startBreakTimer(minutes);
@@ -687,6 +716,7 @@ export default function App() {
             onExport={handleExport}
             onImportClick={() => importFileInputRef.current?.click()}
             onSeedDemoData={handleSeedDemoData}
+            onClearDemoData={handleClearDemoData}
           />
         </div>
       </aside>
@@ -712,6 +742,7 @@ export default function App() {
           onExport={handleExport}
           onImportClick={() => importFileInputRef.current?.click()}
           onSeedDemoData={handleSeedDemoData}
+          onClearDemoData={handleClearDemoData}
         />
 
         {message ? (

@@ -104,7 +104,8 @@
 - 支持 JSON 导出。当前已实现，格式为 `status-record.backup` version 1。
 - 支持 JSON 导入。当前已实现，支持 version 1 备份格式并兼容早期 `AppSnapshot` 导出结构；导入为合并写入，不会先清空本地数据。
 - 支持加载 2026-06-01 到 2026-06-10 示例数据，不删除真实记录。当前已实现并由 E2E 覆盖。
-- 示例数据、导入、导出入口在侧栏隐藏时仍能从主内容区域访问。当前已实现并由 E2E 覆盖。
+- 支持清除 `demo-` 前缀示例数据，不删除真实记录。当前已实现。
+- 示例数据、清除示例、导入、导出入口在侧栏隐藏时仍能从主内容区域访问。当前已实现并由 E2E 覆盖。
 - 统计结果可从源记录重算。当前已实现。
 - schema 变更有 migration。当前 Dexie schema 已升级到 version 4，用于支持 `break_sessions`、`focus_segments` 和源记录 `time_zone`；后续变更需要继续新增 migration。
 

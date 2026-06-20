@@ -484,6 +484,7 @@ interface DayTimelineCell {
 全局数据操作包括：
 
 - 示例数据。
+- 清除示例数据。
 - 导入 JSON。
 - 导出 JSON。
 
@@ -511,6 +512,22 @@ interface SeedDemoDataResult {
 - 写入 2026-06-01 到 2026-06-10 的 demo 记录。
 - 重复触发时只清理 `demo-` 前缀数据，不删除真实记录。
 - Demo 数据写入当前浏览器 IndexedDB，因此无需后端。
+
+### clearDemoData
+
+```ts
+interface ClearDemoDataResult {
+  deletedRecordCount: number;
+  tableCounts: Record<string, number>;
+}
+```
+
+规则：
+
+- 通过全局“清除示例”入口触发；大屏可在侧栏，侧栏操作区隐藏时在主内容区域显示。
+- 只删除 `id` 以 `demo-` 开头的示例记录。
+- 删除范围包括 labels、arrival_sessions、focus_sessions、focus_segments、session_reviews、session_review_labels、break_bank_transactions、break_sessions、sleep_logs。
+- 不删除用户真实记录，不清空数据库，不修改 app_settings。
 
 ## Backup Service
 
