@@ -48,6 +48,12 @@ import {
 } from "./domain/analytics";
 import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
+  buildCalendarEntries,
+  groupCalendarProductLabelsByDate,
+  type CalendarEntry,
+  type CalendarLabel,
+} from "./domain/calendar";
+import {
   getIdleAutoCheckoutDecision,
   type IdleAutoCheckoutDecision,
   type IdleAutoCheckoutSettings,
@@ -105,7 +111,8 @@ import type {
   UpdateSessionReviewInput,
 } from "./types";
 
-type TabId = "today" | "week" | "analytics" | "labels";
+type TabId = "today" | "analytics" | "week" | "calendar" | "labels";
+type CalendarViewMode = "week" | "month";
 type DetailFilter = { type: LabelType; id: Id } | null;
 
 type DataActionsProps = {
@@ -604,17 +611,20 @@ export default function App() {
 
   const navigation = [
     { id: "today" as const, label: "今天", icon: Clock },
-    { id: "week" as const, label: "周点阵", icon: CalendarDays },
     { id: "analytics" as const, label: "统计", icon: BarChart3 },
+    { id: "week" as const, label: "周点阵", icon: CalendarDays },
+    { id: "calendar" as const, label: "日历", icon: CalendarDays },
     { id: "labels" as const, label: "设置", icon: SettingsIcon },
   ];
   const activeViewCopy =
     activeTab === "today"
       ? { eyebrow: "今日工作台", title: "继续保持专注" }
-      : activeTab === "week"
-        ? { eyebrow: "一周点阵", title: "查看一周时间分布" }
       : activeTab === "analytics"
         ? { eyebrow: "统计分析", title: "复盘时间和状态" }
+      : activeTab === "week"
+        ? { eyebrow: "一周点阵", title: "查看一周时间分布" }
+      : activeTab === "calendar"
+        ? { eyebrow: "日历回顾", title: "查看具体做了什么" }
         : { eyebrow: "系统设置", title: "整理记录分类" };
 
   if (isLoading) {
@@ -1019,6 +1029,10 @@ export default function App() {
 
         {activeTab === "week" ? (
           <WeekTimelineView snapshot={snapshot} now={timelineNow} />
+        ) : null}
+
+        {activeTab === "calendar" ? (
+          <CalendarView snapshot={snapshot} />
         ) : null}
 
         {activeTab === "labels" ? (
@@ -2342,6 +2356,380 @@ const WeekTimelineDay = memo(function WeekTimelineDay({
     </article>
   );
 });
+
+const calendarHourHeightPx = 58;
+
+const CalendarView = memo(function CalendarView({
+  snapshot,
+}: {
+  snapshot: AppSnapshot;
+}) {
+  const [mode, setMode] = useState<CalendarViewMode>("week");
+  const [anchorDate, setAnchorDate] = useState(toLocalDate());
+  const range = useMemo(
+    () => getAnalyticsRange(mode, localDateToDate(anchorDate)),
+    [anchorDate, mode],
+  );
+  const entries = useMemo(
+    () => buildCalendarEntries(snapshot, range),
+    [range, snapshot],
+  );
+  const productLabelsByDate = useMemo(
+    () => groupCalendarProductLabelsByDate(entries),
+    [entries],
+  );
+  const legendLabels = useMemo(
+    () => getCalendarLegendLabels(entries),
+    [entries],
+  );
+
+  return (
+    <main className="calendar-layout">
+      <section className="panel calendar-header-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>日历</h2>
+            <p>
+              {mode === "week"
+                ? "周视图只显示具体做过的事情，时间轴覆盖 00:00 到 24:00。"
+                : "月视图只显示每天出现过的产物标签。"}
+            </p>
+          </div>
+          <div className="calendar-toolbar">
+            <div className="segmented-control" aria-label="日历视图">
+              {(["week", "month"] as CalendarViewMode[]).map((item) => (
+                <button
+                  key={item}
+                  className={mode === item ? "selected" : ""}
+                  type="button"
+                  onClick={() => setMode(item)}
+                >
+                  {item === "week" ? "周" : "月"}
+                </button>
+              ))}
+            </div>
+            <CalendarRangeControls
+              anchorDate={anchorDate}
+              mode={mode}
+              onAnchorDateChange={setAnchorDate}
+            />
+          </div>
+        </div>
+      </section>
+
+      {mode === "week" ? (
+        <CalendarWeekView
+          entries={entries}
+          legendLabels={legendLabels}
+          weekDates={getWeekDates(range.startDate)}
+        />
+      ) : (
+        <CalendarMonthView
+          anchorDate={anchorDate}
+          legendLabels={legendLabels}
+          productLabelsByDate={productLabelsByDate}
+        />
+      )}
+    </main>
+  );
+});
+
+function CalendarRangeControls({
+  anchorDate,
+  mode,
+  onAnchorDateChange,
+}: {
+  anchorDate: string;
+  mode: CalendarViewMode;
+  onAnchorDateChange: (date: string) => void;
+}) {
+  const isWeek = mode === "week";
+  const inputType = isWeek ? "date" : "month";
+  const inputLabel = isWeek ? "日期" : "月份";
+
+  function shiftAnchor(direction: -1 | 1) {
+    return isWeek
+      ? shiftLocalDate(anchorDate, direction * 7)
+      : shiftLocalMonth(anchorDate, direction);
+  }
+
+  return (
+    <div className="calendar-range-controls">
+      <button
+        className="ghost-button"
+        type="button"
+        onClick={() => onAnchorDateChange(shiftAnchor(-1))}
+      >
+        <ChevronLeft size={16} />
+        {isWeek ? "上一周" : "上一月"}
+      </button>
+      <label>
+        {inputLabel}
+        <input
+          aria-label={isWeek ? "日历日期" : "日历月份"}
+          type={inputType}
+          value={isWeek ? anchorDate : anchorDate.slice(0, 7)}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            const nextDate = isWeek ? nextValue : `${nextValue}-01`;
+            if (isLocalDateString(nextDate)) {
+              onAnchorDateChange(nextDate);
+            }
+          }}
+        />
+      </label>
+      <button
+        className="ghost-button"
+        type="button"
+        onClick={() => onAnchorDateChange(shiftAnchor(1))}
+      >
+        {isWeek ? "下一周" : "下一月"}
+        <ChevronRight size={16} />
+      </button>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => onAnchorDateChange(toLocalDate())}
+      >
+        {isWeek ? "本周" : "本月"}
+      </button>
+    </div>
+  );
+}
+
+const CalendarWeekView = memo(function CalendarWeekView({
+  entries,
+  legendLabels,
+  weekDates,
+}: {
+  entries: CalendarEntry[];
+  legendLabels: CalendarLabel[];
+  weekDates: string[];
+}) {
+  const entriesByDate = useMemo(() => groupCalendarEntriesByDate(entries), [entries]);
+
+  return (
+    <section className="panel calendar-view-panel calendar-week-panel">
+      <div className="calendar-view-heading">
+        <div>
+          <h3>周视图：具体事情时间线</h3>
+          <p>不显示拖延、休息和空白时间，只显示有复盘文字或产物标签的记录。</p>
+        </div>
+        <CalendarLegend labels={legendLabels} />
+      </div>
+
+      <div className="calendar-week-scroll">
+        <div
+          className="calendar-week-grid"
+          style={{ "--calendar-hour-height": `${calendarHourHeightPx}px` } as React.CSSProperties}
+        >
+          <div className="calendar-time-spacer" />
+          {weekDates.map((date) => (
+            <div className="calendar-day-heading" key={date}>
+              <strong>{date.slice(5)}</strong>
+              <span>{formatWeekday(date)}</span>
+            </div>
+          ))}
+          <div className="calendar-time-axis">
+            {Array.from({ length: 24 }, (_, hour) => (
+              <span key={hour}>{String(hour).padStart(2, "0")}:00</span>
+            ))}
+          </div>
+          {weekDates.map((date) => (
+            <div className="calendar-day-column" key={date}>
+              {(entriesByDate.get(date) ?? []).map((entry) => (
+                <CalendarEventCard key={entry.id} entry={entry} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+});
+
+function CalendarEventCard({ entry }: { entry: CalendarEntry }) {
+  const note = entry.productNote ?? entry.blockerNote;
+
+  return (
+    <article
+      className="calendar-event-card"
+      style={getCalendarEventStyle(entry)}
+      title={`${entry.startTimeLabel} - ${entry.endTimeLabel} ${getCalendarEntryTitle(entry)}`}
+    >
+      <time>
+        {entry.startTimeLabel} - {entry.endTimeLabel}
+      </time>
+      <strong>{getCalendarEntryTitle(entry)}</strong>
+      {note ? <p>{note}</p> : <p className="calendar-muted-text">未填写文字记录</p>}
+      {entry.productLabels.length > 0 ? (
+        <div className="calendar-event-tags">
+          {entry.productLabels.map((label) => (
+            <CalendarLabelChip key={label.id} label={label} />
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+const CalendarMonthView = memo(function CalendarMonthView({
+  anchorDate,
+  legendLabels,
+  productLabelsByDate,
+}: {
+  anchorDate: string;
+  legendLabels: CalendarLabel[];
+  productLabelsByDate: Map<string, CalendarLabel[]>;
+}) {
+  const cells = useMemo(() => buildFullMonthCalendarCells(anchorDate), [anchorDate]);
+  const today = toLocalDate();
+
+  return (
+    <section className="panel calendar-view-panel calendar-month-panel">
+      <div className="calendar-view-heading">
+        <div>
+          <h3>月视图：产物标签日历</h3>
+          <p>每个日期只显示当天出现过的产物标签，标签去重后展示。</p>
+        </div>
+        <CalendarLegend labels={legendLabels} />
+      </div>
+
+      <div className="calendar-month-weekdays" aria-hidden="true">
+        {["一", "二", "三", "四", "五", "六", "日"].map((weekday) => (
+          <span key={weekday}>{weekday}</span>
+        ))}
+      </div>
+      <div className="calendar-month-grid">
+        {cells.map((cell) => {
+          const labels = productLabelsByDate.get(cell.date) ?? [];
+          return (
+            <div
+              key={cell.date}
+              className={`calendar-month-day ${
+                cell.inCurrentMonth ? "" : "muted"
+              } ${cell.date === today ? "today" : ""}`}
+            >
+              <div className="calendar-month-day-number">
+                <strong>{formatCalendarDayNumber(cell.date)}</strong>
+                {cell.date === today ? <span>今天</span> : null}
+              </div>
+              {labels.length > 0 ? (
+                <div className="calendar-month-tags">
+                  {labels.map((label) => (
+                    <CalendarLabelChip key={label.id} label={label} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+});
+
+function CalendarLegend({ labels }: { labels: CalendarLabel[] }) {
+  if (labels.length === 0) {
+    return <p className="calendar-empty-legend">暂无产物标签</p>;
+  }
+
+  return (
+    <div className="calendar-legend" aria-label="产物标签">
+      {labels.map((label) => (
+        <CalendarLabelChip key={label.id} label={label} />
+      ))}
+    </div>
+  );
+}
+
+function CalendarLabelChip({ label }: { label: CalendarLabel }) {
+  return (
+    <span
+      className="calendar-label-chip"
+      style={{ "--calendar-label-color": label.color ?? "#2f855a" } as React.CSSProperties}
+    >
+      {label.name}
+    </span>
+  );
+}
+
+function groupCalendarEntriesByDate(entries: CalendarEntry[]) {
+  const entriesByDate = new Map<string, CalendarEntry[]>();
+  entries.forEach((entry) => {
+    const dateEntries = entriesByDate.get(entry.localDate) ?? [];
+    dateEntries.push(entry);
+    entriesByDate.set(entry.localDate, dateEntries);
+  });
+
+  entriesByDate.forEach((dateEntries) => {
+    dateEntries.sort(
+      (a, b) =>
+        new Date(a.startIso).getTime() - new Date(b.startIso).getTime(),
+    );
+  });
+
+  return entriesByDate;
+}
+
+function getCalendarLegendLabels(entries: CalendarEntry[]): CalendarLabel[] {
+  const seen = new Set<Id>();
+  const labels: CalendarLabel[] = [];
+
+  entries.forEach((entry) => {
+    entry.productLabels.forEach((label) => {
+      if (!seen.has(label.id)) {
+        seen.add(label.id);
+        labels.push(label);
+      }
+    });
+  });
+
+  return labels;
+}
+
+function getCalendarEntryTitle(entry: CalendarEntry): string {
+  if (entry.productLabels.length > 0) {
+    return entry.productLabels.map((label) => label.name).join("、");
+  }
+
+  return entry.statusLabel.name;
+}
+
+function getCalendarEventStyle(entry: CalendarEntry): React.CSSProperties {
+  const startMinute = Math.max(0, Math.min(24 * 60, entry.startMinuteOfDay));
+  const endMinute = Math.max(startMinute + 1, Math.min(24 * 60, entry.endMinuteOfDay));
+  const top = (startMinute / 60) * calendarHourHeightPx;
+  const height = Math.max(48, ((endMinute - startMinute) / 60) * calendarHourHeightPx);
+  const color = entry.productLabels[0]?.color ?? entry.statusLabel.color ?? "#2f855a";
+
+  return {
+    "--calendar-event-top": `${top}px`,
+    "--calendar-event-height": `${height}px`,
+    "--calendar-event-color": color,
+  } as React.CSSProperties;
+}
+
+function buildFullMonthCalendarCells(anchorDate: string): Array<{
+  date: string;
+  inCurrentMonth: boolean;
+}> {
+  const [year = 1970, month = 1] = anchorDate.split("-").map(Number);
+  const firstDate = new Date(year, month - 1, 1);
+  const leadingDays = (firstDate.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const totalCells = Math.ceil((leadingDays + daysInMonth) / 7) * 7;
+  const firstCellDate = new Date(year, month - 1, 1 - leadingDays);
+
+  return Array.from({ length: totalCells }, (_, index) => {
+    const date = new Date(firstCellDate);
+    date.setDate(firstCellDate.getDate() + index);
+    return {
+      date: formatLocalDateForInput(date),
+      inCurrentMonth: date.getMonth() === month - 1,
+    };
+  });
+}
 
 const AnalyticsView = memo(function AnalyticsView({
   snapshot,
@@ -4093,6 +4481,13 @@ function getTimelineTimeZoneLabel(
 
 function localDateToDate(date: string): Date {
   return new Date(`${date}T00:00:00`);
+}
+
+function formatLocalDateForInput(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function shiftLocalDate(date: string, dayDelta: number): string {
