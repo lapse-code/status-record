@@ -49,6 +49,7 @@ import {
 import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
   getIdleAutoCheckoutDecision,
+  type IdleAutoCheckoutDecision,
   type IdleAutoCheckoutSettings,
 } from "./domain/idle-auto-checkout";
 import {
@@ -296,6 +297,22 @@ export default function App() {
     () => getIdleAutoCheckoutSettings(snapshot.appSettings),
     [snapshot.appSettings],
   );
+  const idleAutoCheckoutDecision = useMemo(() => {
+    if (!idleAutoCheckoutSettings.enabled || activeFocusSession || activeBreakSession) {
+      return null;
+    }
+
+    return getIdleAutoCheckoutDecision(
+      snapshot,
+      new Date(),
+      idleAutoCheckoutSettings,
+    );
+  }, [
+    activeBreakSession,
+    activeFocusSession,
+    idleAutoCheckoutSettings,
+    snapshot,
+  ]);
   const timelineColorStyle = useMemo(
     () => getTimelineColorStyle(timelineColors),
     [timelineColors],
@@ -968,6 +985,14 @@ export default function App() {
               </section>
 
               <SleepPanel snapshot={snapshot} onSaved={refresh} onMessage={setMessage} />
+              <IdleAutoCheckoutPanel
+                activeBreakSession={activeBreakSession}
+                activeFocusSession={activeFocusSession}
+                decision={idleAutoCheckoutDecision}
+                now={timerNow}
+                openArrival={openArrival}
+                settings={idleAutoCheckoutSettings}
+              />
             </aside>
 
             <DayTimelinePanel
@@ -1069,6 +1094,101 @@ function StatCard({
     </div>
   );
 }
+
+const IdleAutoCheckoutPanel = memo(function IdleAutoCheckoutPanel({
+  activeBreakSession,
+  activeFocusSession,
+  decision,
+  now,
+  openArrival,
+  settings,
+}: {
+  activeBreakSession?: BreakSessionRecord;
+  activeFocusSession?: FocusSessionRecord;
+  decision: IdleAutoCheckoutDecision | null;
+  now: Date;
+  openArrival?: AppSnapshot["arrivalSessions"][number];
+  settings: IdleAutoCheckoutSettings;
+}) {
+  const totalMs = Math.max(0, Math.round(settings.maxDelayMinutes) * 60_000);
+  const checkoutAtMs = decision ? new Date(decision.checkoutAt).getTime() : Number.NaN;
+  const remainingMs = Number.isFinite(checkoutAtMs)
+    ? Math.max(0, checkoutAtMs - now.getTime())
+    : 0;
+  const progressPercent =
+    decision && totalMs > 0
+      ? Math.min(100, Math.max(0, ((totalMs - remainingMs) / totalMs) * 100))
+      : 0;
+
+  let stateClass = "idle-auto-card idle-auto-card-muted";
+  let status = "未启动";
+  let value = "--:--";
+  let description = "到岗后开始计算拖延保护倒计时。";
+  let detail = settings.enabled
+    ? `当前上限 ${formatMinutes(settings.maxDelayMinutes)}`
+    : "可以在设置页开启";
+
+  if (!settings.enabled) {
+    status = "已关闭";
+    description = "拖延保护不会自动退岗。";
+  } else if (activeBreakSession) {
+    status = "休息中";
+    description = "休息期间不会触发自动退岗。";
+  } else if (activeFocusSession) {
+    status = activeFocusSession.state === "paused" ? "暂停中" : "专注中";
+    description = "当前没有后台自动退岗倒计时。";
+  } else if (!openArrival) {
+    status = "未到岗";
+  } else if (decision) {
+    stateClass = remainingMs <= 3 * 60_000
+      ? "idle-auto-card idle-auto-card-danger"
+      : "idle-auto-card idle-auto-card-active";
+    status = remainingMs <= 0 ? "正在退岗" : "拖延中";
+    value = formatIdleCountdown(remainingMs);
+    description = remainingMs <= 0
+      ? "已达到上限，系统正在自动退岗。"
+      : "到 0 后系统会自动退岗。";
+    detail = `预计 ${new Date(decision.checkoutAt).toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })} 自动退岗`;
+  } else {
+    status = "待命";
+    description = "当前没有连续拖延倒计时。";
+  }
+
+  return (
+    <section className={stateClass}>
+      <div className="idle-auto-card-heading">
+        <div>
+          <h2>拖延保护</h2>
+          <p>{description}</p>
+        </div>
+        <Clock size={22} />
+      </div>
+
+      <div className="idle-auto-card-body">
+        <span>{status}</span>
+        <strong>{value}</strong>
+      </div>
+
+      <div
+        className="idle-auto-progress"
+        aria-label={`拖延保护进度 ${Math.round(progressPercent)}%`}
+      >
+        <span
+          style={
+            {
+              "--progress": `${progressPercent}%`,
+            } as React.CSSProperties
+          }
+        />
+      </div>
+
+      <p className="idle-auto-detail">{detail}</p>
+    </section>
+  );
+});
 
 const SleepPanel = memo(function SleepPanel({
   snapshot,
@@ -3920,6 +4040,19 @@ function getRemainingSeconds(session: FocusSessionRecord, now: Date): number {
 function getBreakRemainingSeconds(session: BreakSessionRecord, now: Date): number {
   const elapsedSeconds = secondsBetween(session.started_at, now.toISOString());
   return session.planned_duration_minutes * 60 - elapsedSeconds;
+}
+
+function formatIdleCountdown(milliseconds: number): string {
+  const safeSeconds = Math.max(0, Math.ceil(milliseconds / 1_000));
+  const hours = Math.floor(safeSeconds / 3_600);
+  const minutes = Math.floor((safeSeconds % 3_600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function isLocalDateString(value: string | null): value is string {

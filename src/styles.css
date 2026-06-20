@@ -1757,6 +1757,104 @@ body {
   grid-column: 2;
 }
 
+.idle-auto-card {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #e0e6df;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.idle-auto-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.idle-auto-card-heading h2 {
+  margin: 0;
+  color: #17211d;
+  font-size: 1.08rem;
+}
+
+.idle-auto-card-heading p,
+.idle-auto-detail {
+  margin: 4px 0 0;
+  color: #62716b;
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.idle-auto-card-heading svg {
+  flex: 0 0 auto;
+  color: #c7352b;
+}
+
+.idle-auto-card-body {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.idle-auto-card-body span {
+  color: #62716b;
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.idle-auto-card-body strong {
+  color: #c7352b;
+  font-size: clamp(2rem, 4.4vw, 3.2rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.idle-auto-progress {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: #f0efed;
+}
+
+.idle-auto-progress span {
+  display: block;
+  width: var(--progress);
+  height: 100%;
+  border-radius: inherit;
+  background: #e05c54;
+}
+
+.idle-auto-card-muted .idle-auto-card-heading svg,
+.idle-auto-card-muted .idle-auto-card-body strong {
+  color: #8a958f;
+}
+
+.idle-auto-card-muted .idle-auto-progress span {
+  background: #a8b2ad;
+}
+
+.idle-auto-card-active {
+  border-color: #efd4cf;
+  background: #fffdfb;
+}
+
+.idle-auto-card-danger {
+  border-color: #e6b6ad;
+  background: #fff7f4;
+}
+
+.idle-auto-card-danger .idle-auto-card-body strong,
+.idle-auto-card-danger .idle-auto-card-heading svg {
+  color: #b6271f;
+}
+
+.idle-auto-card-danger .idle-auto-progress span {
+  background: #c7352b;
+}
+
 .day-dot-panel {
   min-height: 0;
 }
