@@ -177,6 +177,14 @@ export const defaultSettings: AppSettingRecord[] = [
     updated_at: nowIso(),
   },
   {
+    key: "idleAutoCheckout",
+    value_json: JSON.stringify({
+      enabled: true,
+      maxDelayMinutes: 15,
+    }),
+    updated_at: nowIso(),
+  },
+  {
     key: "timelineColors",
     value_json: JSON.stringify({
       empty: "#f0efed",

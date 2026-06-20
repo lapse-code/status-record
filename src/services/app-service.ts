@@ -107,7 +107,22 @@ export async function checkInArrival(): Promise<Id> {
 
 export async function checkOutArrival(arrivalSessionId: Id): Promise<void> {
   const timestamp = nowIso();
-  await closeOpenArrivals(timestamp, arrivalSessionId);
+  await closeOpenArrivals({
+    leftAt: timestamp,
+    updatedAt: timestamp,
+    requestedArrivalId: arrivalSessionId,
+  });
+}
+
+export async function autoCheckoutIdleArrival(
+  arrivalSessionId: Id,
+  effectiveLeftAt: string,
+): Promise<void> {
+  await closeOpenArrivals({
+    leftAt: effectiveLeftAt,
+    updatedAt: nowIso(),
+    requestedArrivalId: arrivalSessionId,
+  });
 }
 
 export async function startFocusTimer(
@@ -1136,10 +1151,15 @@ async function ensureManualFocusDoesNotOverlap(
   }
 }
 
-async function closeOpenArrivals(
-  timestamp: string,
-  requestedArrivalId?: Id,
-): Promise<void> {
+async function closeOpenArrivals({
+  leftAt,
+  updatedAt,
+  requestedArrivalId,
+}: {
+  leftAt: string;
+  updatedAt: string;
+  requestedArrivalId?: Id;
+}): Promise<void> {
   const openArrivals = (await db.arrival_sessions.toArray()).filter(
     (arrival) => !arrival.deleted_at && !arrival.left_at,
   );
@@ -1154,13 +1174,29 @@ async function closeOpenArrivals(
   }
 
   await Promise.all(
-    Array.from(arrivalIds).map((arrivalId) =>
-      db.arrival_sessions.update(arrivalId, {
-        left_at: timestamp,
-        updated_at: timestamp,
-      }),
-    ),
+    Array.from(arrivalIds).map(async (arrivalId) => {
+      const arrival = openArrivals.find((record) => record.id === arrivalId);
+      const normalizedLeftAt = arrival
+        ? getNonNegativeArrivalLeftAt(arrival.arrived_at, leftAt)
+        : leftAt;
+
+      await db.arrival_sessions.update(arrivalId, {
+        left_at: normalizedLeftAt,
+        updated_at: updatedAt,
+      });
+    }),
   );
+}
+
+function getNonNegativeArrivalLeftAt(arrivedAt: string, requestedLeftAt: string): string {
+  const arrivedAtMs = new Date(arrivedAt).getTime();
+  const requestedLeftAtMs = new Date(requestedLeftAt).getTime();
+
+  if (!Number.isFinite(arrivedAtMs) || !Number.isFinite(requestedLeftAtMs)) {
+    return requestedLeftAt;
+  }
+
+  return new Date(Math.max(arrivedAtMs, requestedLeftAtMs)).toISOString();
 }
 
 async function closeRunningFocusSegment(

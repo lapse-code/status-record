@@ -48,6 +48,10 @@ import {
 } from "./domain/analytics";
 import { calculateDailyBreakLedger } from "./domain/break-bank";
 import {
+  getIdleAutoCheckoutDecision,
+  type IdleAutoCheckoutSettings,
+} from "./domain/idle-auto-checkout";
+import {
   activeLabelsByType,
   getNoneBlockerLabel,
 } from "./domain/labels";
@@ -61,6 +65,7 @@ import {
 } from "./domain/time";
 import {
   cancelFocusTimer,
+  autoCheckoutIdleArrival,
   checkInArrival,
   checkOutArrival,
   completeBreakTimer,
@@ -153,6 +158,13 @@ const defaultSleepDurationMinutes = 7 * 60;
 const maxSleepDurationMinutes = 14 * 60;
 const sleepStepMinutes = 15;
 const timelineColorSettingKey = "timelineColors";
+const idleAutoCheckoutSettingKey = "idleAutoCheckout";
+const defaultIdleAutoCheckoutSettings: IdleAutoCheckoutSettings = {
+  enabled: true,
+  maxDelayMinutes: 15,
+};
+const minIdleAutoCheckoutMinutes = 1;
+const maxIdleAutoCheckoutMinutes = 240;
 const defaultTimelineColors: Record<DayTimelineCell["state"], string> = {
   empty: "#f0efed",
   startup_delay: "#e05c54",
@@ -240,6 +252,7 @@ export default function App() {
   const [showManualRecordModal, setShowManualRecordModal] = useState(false);
   const completingRef = useRef<string | null>(null);
   const completingBreakRef = useRef<string | null>(null);
+  const autoCheckoutRef = useRef<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -277,6 +290,10 @@ export default function App() {
   const currentLocalDate = toLocalDate(timerNow);
   const timelineColors = useMemo(
     () => getTimelineColors(snapshot.appSettings),
+    [snapshot.appSettings],
+  );
+  const idleAutoCheckoutSettings = useMemo(
+    () => getIdleAutoCheckoutSettings(snapshot.appSettings),
     [snapshot.appSettings],
   );
   const timelineColorStyle = useMemo(
@@ -377,6 +394,101 @@ export default function App() {
         });
     }
   }, [activeBreakSession, breakBalance, breakRemainingSeconds, refresh]);
+
+  useEffect(() => {
+    if (!idleAutoCheckoutSettings.enabled || activeFocusSession || activeBreakSession) {
+      return;
+    }
+
+    let timeoutId: number | undefined;
+    let isDisposed = false;
+
+    const runAutoCheckoutCheck = async () => {
+      if (isDisposed || activeFocusSession || activeBreakSession) {
+        return;
+      }
+
+      const decision = getIdleAutoCheckoutDecision(
+        snapshot,
+        new Date(),
+        idleAutoCheckoutSettings,
+      );
+      if (!decision) {
+        return;
+      }
+
+      if (!decision.isDue) {
+        timeoutId = window.setTimeout(
+          () => void runAutoCheckoutCheck(),
+          Math.max(0, decision.remainingMs),
+        );
+        return;
+      }
+
+      if (autoCheckoutRef.current === decision.arrivalSessionId) {
+        return;
+      }
+
+      autoCheckoutRef.current = decision.arrivalSessionId;
+      try {
+        const latestSnapshot = await loadSnapshot();
+        const latestDecision = getIdleAutoCheckoutDecision(
+          latestSnapshot,
+          new Date(),
+          idleAutoCheckoutSettings,
+        );
+
+        if (
+          latestDecision?.isDue &&
+          latestDecision.arrivalSessionId === decision.arrivalSessionId
+        ) {
+          await autoCheckoutIdleArrival(
+            latestDecision.arrivalSessionId,
+            latestDecision.checkoutAt,
+          );
+          await refresh();
+          setMessage(
+            `连续拖延超过 ${formatMinutes(
+              idleAutoCheckoutSettings.maxDelayMinutes,
+            )}，已自动退岗。`,
+          );
+        }
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "自动退岗失败。");
+      } finally {
+        autoCheckoutRef.current = null;
+      }
+    };
+
+    const handleResume = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      void runAutoCheckoutCheck();
+    };
+
+    void runAutoCheckoutCheck();
+    window.addEventListener("focus", handleResume);
+    document.addEventListener("visibilitychange", handleResume);
+
+    return () => {
+      isDisposed = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      window.removeEventListener("focus", handleResume);
+      document.removeEventListener("visibilitychange", handleResume);
+    };
+  }, [
+    activeBreakSession,
+    activeFocusSession,
+    idleAutoCheckoutSettings,
+    refresh,
+    snapshot,
+  ]);
 
   async function runAction(action: () => Promise<void>, successMessage?: string) {
     try {
@@ -887,6 +999,7 @@ export default function App() {
         {activeTab === "labels" ? (
           <SettingsView
             snapshot={snapshot}
+            idleAutoCheckoutSettings={idleAutoCheckoutSettings}
             timelineColors={timelineColors}
             onChanged={refresh}
             onMessage={setMessage}
@@ -3244,22 +3357,43 @@ function DistributionLegendContent({
 
 const SettingsView = memo(function SettingsView({
   snapshot,
+  idleAutoCheckoutSettings,
   timelineColors,
   onChanged,
   onMessage,
 }: {
   snapshot: AppSnapshot;
+  idleAutoCheckoutSettings: IdleAutoCheckoutSettings;
   timelineColors: Record<DayTimelineCell["state"], string>;
   onChanged: () => Promise<void>;
   onMessage: (message: string) => void;
 }) {
+  const [idleDraft, setIdleDraft] = useState(idleAutoCheckoutSettings);
   const [timelineDraft, setTimelineDraft] = useState(timelineColors);
   const [editor, setEditor] = useState<LabelEditorState | null>(null);
   const usageCounts = useMemo(() => getLabelUsageCounts(snapshot), [snapshot]);
 
   useEffect(() => {
+    setIdleDraft(idleAutoCheckoutSettings);
+  }, [idleAutoCheckoutSettings]);
+
+  useEffect(() => {
     setTimelineDraft(timelineColors);
   }, [timelineColors]);
+
+  async function handleSaveIdleAutoCheckout(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      await updateAppSetting(
+        idleAutoCheckoutSettingKey,
+        normalizeIdleAutoCheckoutSettings(idleDraft),
+      );
+      await onChanged();
+      onMessage("拖延保护已保存。");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "保存拖延保护失败。");
+    }
+  }
 
   async function handleSaveTimelineColors(event: React.FormEvent) {
     event.preventDefault();
@@ -3274,6 +3408,113 @@ const SettingsView = memo(function SettingsView({
 
   return (
     <main className="labels-layout">
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>拖延保护</h2>
+            <p>到岗后连续拖延超过上限时，系统会自动退岗并截断拖延。</p>
+          </div>
+          <Clock size={22} />
+        </div>
+
+        <form className="idle-auto-checkout-form" onSubmit={handleSaveIdleAutoCheckout}>
+          <label className="settings-check-row">
+            <input
+              checked={idleDraft.enabled}
+              type="checkbox"
+              onChange={(event) =>
+                setIdleDraft((current) => ({
+                  ...current,
+                  enabled: event.currentTarget.checked,
+                }))
+              }
+            />
+            <span>
+              <strong>启用自动退岗</strong>
+              <i>专注、休息不会触发；只有连续拖延达到上限才会关闭到岗。</i>
+            </span>
+          </label>
+
+          <label className="settings-number-row">
+            拖延最长时间
+            <div className="stepper-control compact">
+              <input
+                aria-label="拖延最长时间"
+                inputMode="numeric"
+                min={minIdleAutoCheckoutMinutes}
+                max={maxIdleAutoCheckoutMinutes}
+                type="number"
+                value={idleDraft.maxDelayMinutes}
+                onChange={(event) =>
+                  setIdleDraft((current) => ({
+                    ...current,
+                    maxDelayMinutes: clampIdleAutoCheckoutMinutes(
+                      Number(event.currentTarget.value),
+                    ),
+                  }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setIdleDraft((current) => ({
+                      ...current,
+                      maxDelayMinutes: clampIdleAutoCheckoutMinutes(
+                        current.maxDelayMinutes + 1,
+                      ),
+                    }));
+                  }
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setIdleDraft((current) => ({
+                      ...current,
+                      maxDelayMinutes: clampIdleAutoCheckoutMinutes(
+                        current.maxDelayMinutes - 1,
+                      ),
+                    }));
+                  }
+                }}
+              />
+              <span className="stepper-suffix">分钟</span>
+              <div className="stepper-buttons">
+                <button
+                  aria-label="增加拖延最长时间 1 分钟"
+                  type="button"
+                  onClick={() =>
+                    setIdleDraft((current) => ({
+                      ...current,
+                      maxDelayMinutes: clampIdleAutoCheckoutMinutes(
+                        current.maxDelayMinutes + 1,
+                      ),
+                    }))
+                  }
+                >
+                  <ChevronUp size={16} />
+                </button>
+                <button
+                  aria-label="减少拖延最长时间 1 分钟"
+                  type="button"
+                  onClick={() =>
+                    setIdleDraft((current) => ({
+                      ...current,
+                      maxDelayMinutes: clampIdleAutoCheckoutMinutes(
+                        current.maxDelayMinutes - 1,
+                      ),
+                    }))
+                  }
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </div>
+            </div>
+          </label>
+
+          <button className="primary-button settings-save-button" type="submit">
+            <Save size={18} />
+            保存拖延保护
+          </button>
+        </form>
+      </section>
+
       <section className="panel">
         <div className="panel-heading">
           <div>
@@ -3785,6 +4026,45 @@ function getTimelineColors(
   } catch {
     return defaultTimelineColors;
   }
+}
+
+function getIdleAutoCheckoutSettings(
+  settings: AppSettingRecord[],
+): IdleAutoCheckoutSettings {
+  const setting = settings.find((record) => record.key === idleAutoCheckoutSettingKey);
+  if (!setting) {
+    return defaultIdleAutoCheckoutSettings;
+  }
+
+  try {
+    return normalizeIdleAutoCheckoutSettings(JSON.parse(setting.value_json));
+  } catch {
+    return defaultIdleAutoCheckoutSettings;
+  }
+}
+
+function normalizeIdleAutoCheckoutSettings(value: unknown): IdleAutoCheckoutSettings {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    enabled:
+      typeof source.enabled === "boolean"
+        ? source.enabled
+        : defaultIdleAutoCheckoutSettings.enabled,
+    maxDelayMinutes: clampIdleAutoCheckoutMinutes(source.maxDelayMinutes),
+  };
+}
+
+function clampIdleAutoCheckoutMinutes(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return defaultIdleAutoCheckoutSettings.maxDelayMinutes;
+  }
+
+  return Math.min(
+    maxIdleAutoCheckoutMinutes,
+    Math.max(minIdleAutoCheckoutMinutes, Math.round(numericValue)),
+  );
 }
 
 function normalizeTimelineColors(

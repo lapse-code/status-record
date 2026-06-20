@@ -1061,6 +1061,47 @@ legend {
   gap: 16px;
 }
 
+.idle-auto-checkout-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 320px) auto;
+  align-items: end;
+  gap: 16px;
+}
+
+.settings-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #e6dfd3;
+  border-radius: 8px;
+  background: #fffefa;
+}
+
+.settings-check-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f855a;
+}
+
+.settings-check-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-check-row i {
+  color: #64736d;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.settings-number-row {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+}
+
 .timeline-color-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1284,6 +1325,7 @@ legend {
   .daily-sleep-panel,
   .modal-actions,
   .analytics-range-controls,
+  .idle-auto-checkout-form,
   .timeline-color-row,
   .label-row,
   .label-settings-actions {

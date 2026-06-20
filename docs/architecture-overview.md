@@ -65,6 +65,7 @@ stateDiagram-v2
   FocusStarted --> Arrived: focusCompletedAndReviewed
   Arrived --> Arrived: reviewOrBreak
   Arrived --> Closed: checkOut
+  Arrived --> Closed: idleAutoCheckout
   Closed --> [*]
 ```
 
@@ -86,6 +87,7 @@ stateDiagram-v2
 
 - App 不再用单一全局 `now` 驱动所有页面。
 - 倒计时、自动完成检测、休息结束检测使用 1 秒级 `timerNow`，保证番茄钟和休息提醒及时。
+- 拖延保护不跟随秒级点阵重算。进入连续拖延后使用被动 `setTimeout`，页面 focus/visibility 恢复时补算；自动退岗写 `left_at = idleSince + maxDelayMinutes`，写 `updated_at = 实际补写时间`。
 - Today 日点阵和周点阵使用约 30 秒级 `timelineNow`，用于当前开放到岗、运行中专注和运行中休息的低频可视化刷新。
 - 统计页使用约 60 秒级 `analyticsNow`，周/月统计不会跟随倒计时秒级 tick 重算。
 - 每次写入数据并重新读取 snapshot 后，会立即推进低频显示时间，保证开始、暂停、完成、复盘、手动记录、导入等操作后 UI 立即反映最新数据。
@@ -100,6 +102,7 @@ stateDiagram-v2
 - Today 页的新记录会跟随当前设备时区；如果同一日期内出现多个记录时区，点阵标题显示“多时区”提示。
 - duration 类字段统一用分钟或秒，字段名必须明确，例如 `duration_minutes`。
 - 拖延是派生值，内部字段仍可称 `startup_delay`；可存缓存，但必须能从源时间线重新计算：到岗区间先作为拖延底色，再用休息、有效专注片段和已复盘不专注片段覆盖。不能只用 `arrival_sessions.arrived_at` 和第一条 `focus_sessions.started_at` 计算。
+- `updated_at` 是元数据时间，只能用于导入、冲突判断和同步类场景；统计、点阵、拖延保护和手动记录重叠判断必须使用业务时间字段，例如 `arrived_at`、`left_at`、`started_at`、`ended_at`、`completed_at` 和有效持续时间。
 
 ## 本地优先原则
 

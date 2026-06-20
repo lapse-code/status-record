@@ -246,6 +246,22 @@ interface CheckOutArrivalInput {
 - 离开会关闭当前开放到岗状态。
 - 如果历史数据里存在多条未关闭 arrival session，离开时会把这些重复开放记录一并关闭，避免刷新后再次显示错误到岗时间。
 
+### autoCheckoutIdleArrival
+
+```ts
+interface AutoCheckoutIdleArrivalInput {
+  arrivalSessionId: Id;
+  effectiveLeftAt: ISODateTime;
+}
+```
+
+规则：
+
+- 由拖延保护触发，不由用户直接提交。
+- `effectiveLeftAt` 是业务离岗时间，等于连续拖延开始时间加上设置上限。
+- 写入时 `arrival_sessions.left_at = effectiveLeftAt`，`arrival_sessions.updated_at = nowIso()`；统计和点阵只能使用 `left_at`，不能使用 `updated_at` 作为业务结束时间。
+- 如果历史数据里存在多条未关闭 arrival session，自动退岗和手动离开一样会关闭这些重复开放记录；写入时会保证每条记录的 `left_at` 不早于自身 `arrived_at`。
+
 ### getStartupDelay
 
 ```ts
@@ -344,11 +360,13 @@ interface UpdateAppSettingInput {
 当前设置项：
 
 - `timer`：默认番茄钟和休息规则兼容设置。
+- `idleAutoCheckout`：拖延保护设置，结构为 `{ enabled: boolean, maxDelayMinutes: number }`，默认开启且默认 15 分钟。
 - `timelineColors`：点阵颜色设置，键为 `empty`、`startup_delay`、`break`、`focus`、`blocked`，值为 `#rrggbb`。
 
 规则：
 
 - 设置保存到 `app_settings.value_json`，导出和导入必须包含该表。
+- `idleAutoCheckout.maxDelayMinutes` 应归一化到 1 到 240 分钟范围内。
 - 点阵颜色只影响日点阵、周点阵和图例，不改变标签本身的统计颜色。
 
 ## Analytics Service

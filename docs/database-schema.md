@@ -51,16 +51,17 @@
 | local_date | string | 到岗所在本地日期 |
 | time_zone | string | 到岗发生时区 |
 | arrived_at | datetime | 到岗时间 |
-| left_at | datetime nullable | 离开时间 |
+| left_at | datetime nullable | 离开时间；拖延保护自动退岗时写入“连续拖延开始 + 上限分钟”的业务结束时间 |
 | note | text nullable | 备注 |
 | created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+| updated_at | datetime | 更新时间；自动退岗补写时表示实际写入时间，不参与拖延统计 |
 | deleted_at | datetime nullable | 软删除 |
 
 派生字段：
 
 - `startup_delay_minutes` 不必作为源字段保存；界面显示为“拖延”。
 - 计算方式：从 canonical timeline 派生。到岗区间先作为拖延底色，再用休息、有效专注片段和已复盘不专注片段覆盖；剩余等待时间就是拖延。兼容层仍可保留“到岗到第一轮开始”的诊断工具，但它不是 Today/Analytics 的统计来源。
+- 拖延保护配置保存在 `app_settings.idleAutoCheckout`。启用时，连续拖延达到上限会自动关闭开放到岗；合盖或后台恢复后的补写仍以 `left_at` 截断业务时间，避免把恢复时间算进拖延。
 
 ## focus_sessions
 
@@ -246,6 +247,13 @@
 
 ```json
 [
+  {
+    "key": "idleAutoCheckout",
+    "value_json": {
+      "enabled": true,
+      "maxDelayMinutes": 15
+    }
+  },
   {
     "key": "timer",
     "value_json": {
