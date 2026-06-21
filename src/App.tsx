@@ -2589,11 +2589,14 @@ function CalendarEventCard({ entry }: { entry: CalendarEntry }) {
     <article
       className="calendar-event-card"
       style={getCalendarEventStyle(entry)}
-      title={`${entry.startTimeLabel} - ${entry.endTimeLabel} ${getCalendarEntryTitle(entry)}`}
+      title={`${entry.startTimeLabel} - ${entry.endTimeLabel} ${entry.statusLabel.name} ${getCalendarEntryTitle(entry)}`}
     >
-      <time>
-        {entry.startTimeLabel} - {entry.endTimeLabel}
-      </time>
+      <div className="calendar-event-meta">
+        <time>
+          {entry.startTimeLabel} - {entry.endTimeLabel}
+        </time>
+        <CalendarStatusBadge label={entry.statusLabel} />
+      </div>
       <strong>{getCalendarEntryTitle(entry)}</strong>
       {note ? (
         <p className="calendar-event-note">{note}</p>
@@ -2601,6 +2604,17 @@ function CalendarEventCard({ entry }: { entry: CalendarEntry }) {
         <p className="calendar-muted-text">未填写文字记录</p>
       )}
     </article>
+  );
+}
+
+function CalendarStatusBadge({ label }: { label: CalendarLabel }) {
+  return (
+    <span
+      className="calendar-status-badge"
+      style={{ "--calendar-status-color": label.color ?? "#2f855a" } as React.CSSProperties}
+    >
+      {label.name}
+    </span>
   );
 }
 

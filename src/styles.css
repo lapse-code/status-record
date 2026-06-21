@@ -844,11 +844,42 @@ legend {
   box-shadow: 0 8px 18px rgba(45, 38, 24, 0.06);
 }
 
+.calendar-event-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .calendar-event-card time {
+  min-width: 0;
+  overflow: hidden;
   color: #4f6058;
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-status-badge {
+  display: inline-flex;
+  max-width: 74px;
+  min-height: 20px;
+  flex: 0 1 auto;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--calendar-status-color), white 68%);
+  border-radius: 999px;
+  padding: 0 7px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--calendar-status-color), #121a16 18%);
+  background: color-mix(in srgb, var(--calendar-status-color), white 88%);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .calendar-event-card strong {
